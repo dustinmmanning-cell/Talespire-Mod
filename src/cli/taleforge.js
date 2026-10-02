@@ -367,6 +367,7 @@ async function cmdProbe(args) {
   const kind = args._[1] || 'house';
   const catalog = loadCatalog(flags);
   if (kind === 'facing') {
+    if (catalog.meta && catalog.meta.synthetic) fail('the facing probe is a slab for your game; it needs your real catalog, not --demo');
     const kit = loadKit(catalog, flags);
     const placements = facingProbe(kit, flags.role || 'bed');
     const { text } = await encodeSlab(placements);

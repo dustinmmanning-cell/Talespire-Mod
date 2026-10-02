@@ -1,0 +1,376 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -26 720 554" width="720" height="554" font-family="Georgia, serif">
+<rect x="0" y="-26" width="720" height="554" fill="#1b1b1f"/>
+<text x="6" y="-8" fill="#f0e6d0" font-size="15">Millbrook  <tspan fill="#9a948a" font-size="11">60x44 tiles, 3336 assets</tspan></text>
+<rect x="0" y="0" width="720" height="12" fill="#6d9b4a"/>
+<rect x="0" y="12" width="720" height="12" fill="#6d9b4a"/>
+<rect x="0" y="24" width="720" height="12" fill="#6d9b4a"/>
+<rect x="0" y="36" width="720" height="12" fill="#6d9b4a"/>
+<rect x="0" y="48" width="552" height="12" fill="#6d9b4a"/>
+<rect x="552" y="48" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="48" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="60" width="336" height="12" fill="#6d9b4a"/>
+<rect x="336" y="60" width="12" height="12" fill="#8a6a45"/>
+<rect x="348" y="60" width="204" height="12" fill="#6d9b4a"/>
+<rect x="552" y="60" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="60" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="72" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="72" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="72" width="192" height="12" fill="#6d9b4a"/>
+<rect x="552" y="72" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="72" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="84" width="60" height="12" fill="#6d9b4a"/>
+<rect x="60" y="84" width="24" height="12" fill="#7d7a76"/>
+<rect x="84" y="84" width="240" height="12" fill="#6d9b4a"/>
+<rect x="324" y="84" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="84" width="156" height="12" fill="#6d9b4a"/>
+<rect x="516" y="84" width="24" height="12" fill="#7d7a76"/>
+<rect x="540" y="84" width="12" height="12" fill="#6d9b4a"/>
+<rect x="552" y="84" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="84" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="96" width="60" height="12" fill="#6d9b4a"/>
+<rect x="60" y="96" width="24" height="12" fill="#7d7a76"/>
+<rect x="84" y="96" width="240" height="12" fill="#6d9b4a"/>
+<rect x="324" y="96" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="96" width="156" height="12" fill="#6d9b4a"/>
+<rect x="516" y="96" width="24" height="12" fill="#7d7a76"/>
+<rect x="540" y="96" width="12" height="12" fill="#6d9b4a"/>
+<rect x="552" y="96" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="96" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="108" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="108" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="108" width="192" height="12" fill="#6d9b4a"/>
+<rect x="552" y="108" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="108" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="120" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="120" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="120" width="192" height="12" fill="#6d9b4a"/>
+<rect x="552" y="120" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="120" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="132" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="132" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="132" width="192" height="12" fill="#6d9b4a"/>
+<rect x="552" y="132" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="132" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="144" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="144" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="144" width="72" height="12" fill="#6d9b4a"/>
+<rect x="432" y="144" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="144" width="36" height="12" fill="#6d9b4a"/>
+<rect x="552" y="144" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="144" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="156" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="156" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="156" width="72" height="12" fill="#6d9b4a"/>
+<rect x="432" y="156" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="156" width="36" height="12" fill="#6d9b4a"/>
+<rect x="552" y="156" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="156" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="168" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="168" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="168" width="72" height="12" fill="#6d9b4a"/>
+<rect x="432" y="168" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="168" width="36" height="12" fill="#6d9b4a"/>
+<rect x="552" y="168" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="168" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="180" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="180" width="84" height="12" fill="#7d7a76"/>
+<rect x="204" y="180" width="120" height="12" fill="#6d9b4a"/>
+<rect x="324" y="180" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="180" width="72" height="12" fill="#6d9b4a"/>
+<rect x="432" y="180" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="180" width="36" height="12" fill="#6d9b4a"/>
+<rect x="552" y="180" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="180" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="192" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="192" width="84" height="12" fill="#7d7a76"/>
+<rect x="204" y="192" width="120" height="12" fill="#6d9b4a"/>
+<rect x="324" y="192" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="192" width="72" height="12" fill="#6d9b4a"/>
+<rect x="432" y="192" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="192" width="36" height="12" fill="#6d9b4a"/>
+<rect x="552" y="192" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="192" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="204" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="204" width="84" height="12" fill="#7d7a76"/>
+<rect x="204" y="204" width="120" height="12" fill="#6d9b4a"/>
+<rect x="324" y="204" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="204" width="72" height="12" fill="#6d9b4a"/>
+<rect x="432" y="204" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="204" width="36" height="12" fill="#6d9b4a"/>
+<rect x="552" y="204" width="144" height="12" fill="#a58a4f"/>
+<rect x="696" y="204" width="24" height="12" fill="#6d9b4a"/>
+<rect x="0" y="216" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="216" width="84" height="12" fill="#7d7a76"/>
+<rect x="204" y="216" width="60" height="12" fill="#6d9b4a"/>
+<rect x="264" y="216" width="60" height="12" fill="#8c8c8c"/>
+<rect x="324" y="216" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="216" width="48" height="12" fill="#8c8c8c"/>
+<rect x="408" y="216" width="24" height="12" fill="#6d9b4a"/>
+<rect x="432" y="216" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="216" width="204" height="12" fill="#6d9b4a"/>
+<rect x="0" y="228" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="228" width="84" height="12" fill="#7d7a76"/>
+<rect x="204" y="228" width="60" height="12" fill="#6d9b4a"/>
+<rect x="264" y="228" width="60" height="12" fill="#8c8c8c"/>
+<rect x="324" y="228" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="228" width="48" height="12" fill="#8c8c8c"/>
+<rect x="408" y="228" width="24" height="12" fill="#6d9b4a"/>
+<rect x="432" y="228" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="228" width="204" height="12" fill="#6d9b4a"/>
+<rect x="0" y="240" width="264" height="12" fill="#6d9b4a"/>
+<rect x="264" y="240" width="60" height="12" fill="#8c8c8c"/>
+<rect x="324" y="240" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="240" width="48" height="12" fill="#8c8c8c"/>
+<rect x="408" y="240" width="24" height="12" fill="#6d9b4a"/>
+<rect x="432" y="240" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="240" width="204" height="12" fill="#6d9b4a"/>
+<rect x="0" y="252" width="48" height="12" fill="#6d9b4a"/>
+<rect x="48" y="252" width="276" height="12" fill="#8c8c8c"/>
+<rect x="324" y="252" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="252" width="72" height="12" fill="#8c8c8c"/>
+<rect x="432" y="252" width="84" height="12" fill="#7d7a76"/>
+<rect x="516" y="252" width="24" height="12" fill="#8c8c8c"/>
+<rect x="540" y="252" width="180" height="12" fill="#6d9b4a"/>
+<rect x="0" y="264" width="36" height="12" fill="#6d9b4a"/>
+<rect x="36" y="264" width="288" height="12" fill="#8c8c8c"/>
+<rect x="324" y="264" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="264" width="192" height="12" fill="#8c8c8c"/>
+<rect x="552" y="264" width="168" height="12" fill="#6d9b4a"/>
+<rect x="0" y="276" width="48" height="12" fill="#6d9b4a"/>
+<rect x="48" y="276" width="276" height="12" fill="#8c8c8c"/>
+<rect x="324" y="276" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="276" width="180" height="12" fill="#8c8c8c"/>
+<rect x="540" y="276" width="180" height="12" fill="#6d9b4a"/>
+<rect x="0" y="288" width="264" height="12" fill="#6d9b4a"/>
+<rect x="264" y="288" width="60" height="12" fill="#8c8c8c"/>
+<rect x="324" y="288" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="288" width="48" height="12" fill="#8c8c8c"/>
+<rect x="408" y="288" width="312" height="12" fill="#6d9b4a"/>
+<rect x="0" y="300" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="300" width="72" height="12" fill="#a9773f"/>
+<rect x="192" y="300" width="72" height="12" fill="#6d9b4a"/>
+<rect x="264" y="300" width="60" height="12" fill="#8c8c8c"/>
+<rect x="324" y="300" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="300" width="48" height="12" fill="#8c8c8c"/>
+<rect x="408" y="300" width="312" height="12" fill="#6d9b4a"/>
+<rect x="0" y="312" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="312" width="72" height="12" fill="#a9773f"/>
+<rect x="192" y="312" width="72" height="12" fill="#6d9b4a"/>
+<rect x="264" y="312" width="60" height="12" fill="#8c8c8c"/>
+<rect x="324" y="312" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="312" width="12" height="12" fill="#8c8c8c"/>
+<rect x="372" y="312" width="120" height="12" fill="#a9773f"/>
+<rect x="492" y="312" width="228" height="12" fill="#6d9b4a"/>
+<rect x="0" y="324" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="324" width="72" height="12" fill="#a9773f"/>
+<rect x="192" y="324" width="132" height="12" fill="#6d9b4a"/>
+<rect x="324" y="324" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="324" width="12" height="12" fill="#6d9b4a"/>
+<rect x="372" y="324" width="120" height="12" fill="#a9773f"/>
+<rect x="492" y="324" width="228" height="12" fill="#6d9b4a"/>
+<rect x="0" y="336" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="336" width="72" height="12" fill="#a9773f"/>
+<rect x="192" y="336" width="24" height="12" fill="#6d9b4a"/>
+<rect x="216" y="336" width="60" height="12" fill="#a9773f"/>
+<rect x="276" y="336" width="48" height="12" fill="#6d9b4a"/>
+<rect x="324" y="336" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="336" width="12" height="12" fill="#6d9b4a"/>
+<rect x="372" y="336" width="120" height="12" fill="#a9773f"/>
+<rect x="492" y="336" width="228" height="12" fill="#6d9b4a"/>
+<rect x="0" y="348" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="348" width="72" height="12" fill="#a9773f"/>
+<rect x="192" y="348" width="24" height="12" fill="#6d9b4a"/>
+<rect x="216" y="348" width="60" height="12" fill="#a9773f"/>
+<rect x="276" y="348" width="48" height="12" fill="#6d9b4a"/>
+<rect x="324" y="348" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="348" width="12" height="12" fill="#6d9b4a"/>
+<rect x="372" y="348" width="120" height="12" fill="#a9773f"/>
+<rect x="492" y="348" width="228" height="12" fill="#6d9b4a"/>
+<rect x="0" y="360" width="216" height="12" fill="#6d9b4a"/>
+<rect x="216" y="360" width="60" height="12" fill="#a9773f"/>
+<rect x="276" y="360" width="48" height="12" fill="#6d9b4a"/>
+<rect x="324" y="360" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="360" width="12" height="12" fill="#6d9b4a"/>
+<rect x="372" y="360" width="120" height="12" fill="#a9773f"/>
+<rect x="492" y="360" width="228" height="12" fill="#6d9b4a"/>
+<rect x="0" y="372" width="216" height="12" fill="#6d9b4a"/>
+<rect x="216" y="372" width="60" height="12" fill="#a9773f"/>
+<rect x="276" y="372" width="48" height="12" fill="#6d9b4a"/>
+<rect x="324" y="372" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="372" width="12" height="12" fill="#6d9b4a"/>
+<rect x="372" y="372" width="120" height="12" fill="#a9773f"/>
+<rect x="492" y="372" width="228" height="12" fill="#6d9b4a"/>
+<rect x="0" y="384" width="216" height="12" fill="#6d9b4a"/>
+<rect x="216" y="384" width="60" height="12" fill="#a9773f"/>
+<rect x="276" y="384" width="48" height="12" fill="#6d9b4a"/>
+<rect x="324" y="384" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="384" width="12" height="12" fill="#6d9b4a"/>
+<rect x="372" y="384" width="120" height="12" fill="#a9773f"/>
+<rect x="492" y="384" width="228" height="12" fill="#6d9b4a"/>
+<rect x="0" y="396" width="216" height="12" fill="#6d9b4a"/>
+<rect x="216" y="396" width="36" height="12" fill="#a9773f"/>
+<rect x="252" y="396" width="72" height="12" fill="#6d9b4a"/>
+<rect x="324" y="396" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="396" width="12" height="12" fill="#6d9b4a"/>
+<rect x="372" y="396" width="120" height="12" fill="#a9773f"/>
+<rect x="492" y="396" width="228" height="12" fill="#6d9b4a"/>
+<rect x="0" y="408" width="216" height="12" fill="#6d9b4a"/>
+<rect x="216" y="408" width="36" height="12" fill="#a9773f"/>
+<rect x="252" y="408" width="72" height="12" fill="#6d9b4a"/>
+<rect x="324" y="408" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="408" width="360" height="12" fill="#6d9b4a"/>
+<rect x="0" y="420" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="420" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="420" width="360" height="12" fill="#6d9b4a"/>
+<rect x="0" y="432" width="60" height="12" fill="#6d9b4a"/>
+<rect x="60" y="432" width="24" height="12" fill="#7d7a76"/>
+<rect x="84" y="432" width="240" height="12" fill="#6d9b4a"/>
+<rect x="324" y="432" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="432" width="156" height="12" fill="#6d9b4a"/>
+<rect x="516" y="432" width="24" height="12" fill="#7d7a76"/>
+<rect x="540" y="432" width="180" height="12" fill="#6d9b4a"/>
+<rect x="0" y="444" width="60" height="12" fill="#6d9b4a"/>
+<rect x="60" y="444" width="24" height="12" fill="#7d7a76"/>
+<rect x="84" y="444" width="240" height="12" fill="#6d9b4a"/>
+<rect x="324" y="444" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="444" width="156" height="12" fill="#6d9b4a"/>
+<rect x="516" y="444" width="24" height="12" fill="#7d7a76"/>
+<rect x="540" y="444" width="180" height="12" fill="#6d9b4a"/>
+<rect x="0" y="456" width="324" height="12" fill="#6d9b4a"/>
+<rect x="324" y="456" width="36" height="12" fill="#8a6a45"/>
+<rect x="360" y="456" width="60" height="12" fill="#6d9b4a"/>
+<rect x="420" y="456" width="120" height="12" fill="#3f7fbf"/>
+<rect x="540" y="456" width="180" height="12" fill="#6d9b4a"/>
+<rect x="0" y="468" width="120" height="12" fill="#3f7fbf"/>
+<rect x="120" y="468" width="180" height="12" fill="#6d9b4a"/>
+<rect x="300" y="468" width="360" height="12" fill="#3f7fbf"/>
+<rect x="660" y="468" width="60" height="12" fill="#6d9b4a"/>
+<rect x="0" y="480" width="720" height="12" fill="#3f7fbf"/>
+<rect x="0" y="492" width="420" height="12" fill="#3f7fbf"/>
+<rect x="420" y="492" width="120" height="12" fill="#6d9b4a"/>
+<rect x="540" y="492" width="180" height="12" fill="#3f7fbf"/>
+<rect x="0" y="504" width="120" height="12" fill="#6d9b4a"/>
+<rect x="120" y="504" width="180" height="12" fill="#3f7fbf"/>
+<rect x="300" y="504" width="360" height="12" fill="#6d9b4a"/>
+<rect x="660" y="504" width="60" height="12" fill="#3f7fbf"/>
+<rect x="0" y="516" width="720" height="12" fill="#6d9b4a"/>
+<path d="M60 0V528M120 0V528M180 0V528M240 0V528M300 0V528M360 0V528M420 0V528M480 0V528M540 0V528M600 0V528M660 0V528M0 60H720M0 120H720M0 180H720M0 240H720M0 300H720M0 360H720M0 420H720M0 480H720" stroke="#000" stroke-opacity="0.12" stroke-width="1"/>
+<path d="M120 181.44L132 181.44M121.44 180L121.44 192M132 181.44L144 181.44M156 181.44L168 181.44M168 181.44L180 181.44M180 181.44L192 181.44M192 181.44L204 181.44M202.56 180L202.56 192M121.44 192L121.44 204M202.56 192L202.56 204M121.44 216L121.44 228M202.56 216L202.56 228M120 238.56L132 238.56M121.44 228L121.44 240M132 238.56L144 238.56M144 238.56L156 238.56M168 238.56L180 238.56M180 238.56L192 238.56M202.56 228L202.56 240M192 238.56L204 238.56M432 145.44L444 145.44M433.44 144L433.44 156M456 145.44L468 145.44M480 145.44L492 145.44M504 145.44L516 145.44M514.56 144L514.56 156M433.44 168L433.44 180M514.56 168L514.56 180M433.44 192L433.44 204M514.56 192L514.56 204M433.44 216L433.44 228M514.56 216L514.56 228M433.44 240L433.44 252M514.56 240L514.56 252M432 262.56L444 262.56M433.44 252L433.44 264M456 262.56L468 262.56M480 262.56L492 262.56M514.56 252L514.56 264M504 262.56L516 262.56M120 301.44L132 301.44M121.44 300L121.44 312M132 301.44L144 301.44M156 301.44L168 301.44M168 301.44L180 301.44M180 301.44L192 301.44M190.56 300L190.56 312M121.44 312L121.44 324M190.56 312L190.56 324M121.44 336L121.44 348M190.56 336L190.56 348M120 358.56L132 358.56M121.44 348L121.44 360M132 358.56L144 358.56M156 358.56L168 358.56M168 358.56L180 358.56M190.56 348L190.56 360M180 358.56L192 358.56M216 337.44L228 337.44M217.44 336L217.44 348M228 337.44L240 337.44M252 337.44L264 337.44M264 337.44L276 337.44M274.56 336L274.56 348M217.44 348L217.44 360M274.56 348L274.56 360M274.56 360L274.56 372M217.44 372L217.44 384M217.44 384L217.44 396M252 394.56L264 394.56M274.56 384L274.56 396M264 394.56L276 394.56M217.44 396L217.44 408M250.56 396L250.56 408M216 418.56L228 418.56M217.44 408L217.44 420M228 418.56L240 418.56M250.56 408L250.56 420M240 418.56L252 418.56M372 313.44L384 313.44M373.44 312L373.44 324M384 313.44L396 313.44M396 313.44L408 313.44M420 313.44L432 313.44M432 313.44L444 313.44M456 313.44L468 313.44M468 313.44L480 313.44M480 313.44L492 313.44M490.56 312L490.56 324M373.44 324L373.44 336M490.56 324L490.56 336M373.44 348L373.44 360M490.56 348L490.56 360M372 370.56L384 370.56M373.44 360L373.44 372M384 370.56L396 370.56M396 370.56L408 370.56M408 370.56L420 370.56M420 370.56L432 370.56M444 370.56L456 370.56M456 370.56L468 370.56M468 370.56L480 370.56M490.56 360L490.56 372M480 370.56L492 370.56M373.44 372L373.44 384M490.56 372L490.56 384M372 406.56L384 406.56M373.44 396L373.44 408M384 406.56L396 406.56M408 406.56L420 406.56M420 406.56L432 406.56M432 406.56L444 406.56M456 406.56L468 406.56M468 406.56L480 406.56M490.56 396L490.56 408M480 406.56L492 406.56M60 85.44L72 85.44M61.44 84L61.44 96M72 85.44L84 85.44M82.56 84L82.56 96M60 106.56L72 106.56M61.44 96L61.44 108M82.56 96L82.56 108M72 106.56L84 106.56M516 85.44L528 85.44M517.44 84L517.44 96M528 85.44L540 85.44M538.56 84L538.56 96M516 106.56L528 106.56M517.44 96L517.44 108M538.56 96L538.56 108M528 106.56L540 106.56M516 433.44L528 433.44M517.44 432L517.44 444M528 433.44L540 433.44M538.56 432L538.56 444M516 454.56L528 454.56M517.44 444L517.44 456M538.56 444L538.56 456M528 454.56L540 454.56M60 433.44L72 433.44M61.44 432L61.44 444M72 433.44L84 433.44M82.56 432L82.56 444M60 454.56L72 454.56M61.44 444L61.44 456M82.56 444L82.56 456M72 454.56L84 454.56M84 97.44L96 97.44M96 97.44L108 97.44M108 97.44L120 97.44M120 97.44L132 97.44M132 97.44L144 97.44M144 97.44L156 97.44M156 97.44L168 97.44M168 97.44L180 97.44M180 97.44L192 97.44M192 97.44L204 97.44M204 97.44L216 97.44M216 97.44L228 97.44M228 97.44L240 97.44M240 97.44L252 97.44M252 97.44L264 97.44M264 97.44L276 97.44M276 97.44L288 97.44M288 97.44L300 97.44M300 97.44L312 97.44M312 97.44L324 97.44M324 97.44L336 97.44M336 97.44L348 97.44M348 97.44L360 97.44M360 97.44L372 97.44M372 97.44L384 97.44M384 97.44L396 97.44M396 97.44L408 97.44M408 97.44L420 97.44M420 97.44L432 97.44M432 97.44L444 97.44M444 97.44L456 97.44M456 97.44L468 97.44M468 97.44L480 97.44M480 97.44L492 97.44M492 97.44L504 97.44M504 97.44L516 97.44M526.56 108L526.56 120M526.56 120L526.56 132M526.56 132L526.56 144M526.56 144L526.56 156M526.56 156L526.56 168M526.56 168L526.56 180M526.56 180L526.56 192M526.56 192L526.56 204M526.56 204L526.56 216M526.56 216L526.56 228M526.56 228L526.56 240M526.56 240L526.56 252M526.56 276L526.56 288M526.56 288L526.56 300M526.56 300L526.56 312M526.56 312L526.56 324M526.56 324L526.56 336M526.56 336L526.56 348M526.56 348L526.56 360M526.56 360L526.56 372M526.56 372L526.56 384M526.56 384L526.56 396M526.56 396L526.56 408M526.56 408L526.56 420M526.56 420L526.56 432M504 442.56L516 442.56M492 442.56L504 442.56M480 442.56L492 442.56M468 442.56L480 442.56M456 442.56L468 442.56M444 442.56L456 442.56M432 442.56L444 442.56M420 442.56L432 442.56M408 442.56L420 442.56M396 442.56L408 442.56M384 442.56L396 442.56M372 442.56L384 442.56M360 442.56L372 442.56M348 442.56L360 442.56M336 442.56L348 442.56M324 442.56L336 442.56M312 442.56L324 442.56M300 442.56L312 442.56M288 442.56L300 442.56M276 442.56L288 442.56M264 442.56L276 442.56M252 442.56L264 442.56M240 442.56L252 442.56M228 442.56L240 442.56M216 442.56L228 442.56M204 442.56L216 442.56M192 442.56L204 442.56M180 442.56L192 442.56M168 442.56L180 442.56M156 442.56L168 442.56M144 442.56L156 442.56M132 442.56L144 442.56M120 442.56L132 442.56M108 442.56L120 442.56M96 442.56L108 442.56M84 442.56L96 442.56M73.44 420L73.44 432M73.44 408L73.44 420M73.44 396L73.44 408M73.44 384L73.44 396M73.44 372L73.44 384M73.44 360L73.44 372M73.44 348L73.44 360M73.44 336L73.44 348M73.44 324L73.44 336M73.44 312L73.44 324M73.44 300L73.44 312M73.44 288L73.44 300M73.44 252L73.44 264M73.44 240L73.44 252M73.44 228L73.44 240M73.44 216L73.44 228M73.44 204L73.44 216M73.44 192L73.44 204M73.44 180L73.44 192M73.44 168L73.44 180M73.44 156L73.44 168M73.44 144L73.44 156M73.44 132L73.44 144M73.44 120L73.44 132M73.44 108L73.44 120" stroke="#2a2522" stroke-width="2.88" stroke-linecap="square"/>
+<path d="M144 181.44L156 181.44M121.44 204L121.44 216M202.56 204L202.56 216M444 145.44L456 145.44M468 145.44L480 145.44M492 145.44L504 145.44M433.44 156L433.44 168M514.56 156L514.56 168M433.44 180L433.44 192M514.56 180L514.56 192M433.44 204L433.44 216M514.56 204L514.56 216M433.44 228L433.44 240M514.56 228L514.56 240M444 262.56L456 262.56M492 262.56L504 262.56M121.44 324L121.44 336M190.56 324L190.56 336M144 358.56L156 358.56M240 337.44L252 337.44M217.44 360L217.44 372M444 313.44L456 313.44M373.44 336L373.44 348M490.56 336L490.56 348M373.44 384L373.44 396M490.56 384L490.56 396M396 406.56L408 406.56M444 406.56L456 406.56M552 37.44L564 37.44M564 37.44L576 37.44M576 37.44L588 37.44M588 37.44L600 37.44M600 37.44L612 37.44M612 37.44L624 37.44M624 37.44L636 37.44M636 37.44L648 37.44M648 37.44L660 37.44M660 37.44L672 37.44M672 37.44L684 37.44M684 37.44L696 37.44" stroke="#9fd3f2" stroke-width="2.16"/>
+<path d="M156 238.56L168 238.56M468 262.56L480 262.56M144 301.44L156 301.44M274.56 372L274.56 384M408 313.44L420 313.44M432 370.56L444 370.56M526.56 252L526.56 264M526.56 264L526.56 276M73.44 276L73.44 288M73.44 264L73.44 276" stroke="#e8a33d" stroke-width="3.5999999999999996"/>
+<circle cx="558.0" cy="42.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Harbor Fence 02</title></circle>
+<circle cx="582.0" cy="42.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Harbor Fence 02</title></circle>
+<circle cx="606.0" cy="42.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Harbor Fence 02</title></circle>
+<circle cx="630.0" cy="42.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Harbor Fence 02</title></circle>
+<circle cx="654.0" cy="42.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Harbor Fence 02</title></circle>
+<circle cx="678.0" cy="42.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Harbor Fence 02</title></circle>
+<circle cx="336.0" cy="264.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Well 01</title></circle>
+<circle cx="294.0" cy="240.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Market Stall</title></circle>
+<circle cx="378.0" cy="240.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Market Stall</title></circle>
+<circle cx="300.0" cy="486.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Rowboat</title></circle>
+<circle cx="174.0" cy="193.6" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Forge</title></circle>
+<circle cx="162.0" cy="210.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Anvil</title></circle>
+<circle cx="162.0" cy="198.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Anvil</title></circle>
+<circle cx="138.0" cy="188.8" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Weapon Rack</title></circle>
+<circle cx="186.0" cy="231.2" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Weapon Rack</title></circle>
+<circle cx="130.6" cy="210.0" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="138.0" cy="230.0" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel</title></circle>
+<circle cx="193.4" cy="198.0" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Crate 01</title></circle>
+<circle cx="193.4" cy="210.0" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Crate 01</title></circle>
+<circle cx="474.0" cy="155.2" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Altar 01</title></circle>
+<circle cx="443.8" cy="174.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Statue Knight</title></circle>
+<circle cx="504.2" cy="198.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Statue Knight</title></circle>
+<circle cx="474.0" cy="198.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="462.0" cy="210.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="486.0" cy="210.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="474.0" cy="186.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="474.0" cy="222.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="450.0" cy="198.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="474.0" cy="174.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="450.0" cy="222.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="474.0" cy="234.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="450.0" cy="186.0" r="2.6" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Pew</title></circle>
+<circle cx="507.8" cy="162.0" r="2.6" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Candle Stand</title></circle>
+<circle cx="440.2" cy="210.0" r="2.6" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Candle Stand</title></circle>
+<circle cx="498.0" cy="255.8" r="2.6" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Candle Stand</title></circle>
+<circle cx="498.0" cy="152.2" r="2.6" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Candle Stand</title></circle>
+<circle cx="508.4" cy="186.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Banner Red</title></circle>
+<circle cx="508.4" cy="234.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Banner Red</title></circle>
+<circle cx="183.2" cy="318.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bed Single</title></circle>
+<circle cx="162.0" cy="351.2" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bed Single</title></circle>
+<circle cx="127.0" cy="342.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Fireplace Stone</title></circle>
+<circle cx="150.0" cy="330.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Round</title></circle>
+<circle cx="162.0" cy="306.4" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="138.0" cy="353.0" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel</title></circle>
+<circle cx="234.0" cy="344.8" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bed Single</title></circle>
+<circle cx="246.0" cy="378.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Round</title></circle>
+<circle cx="234.0" cy="412.4" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="414.0" cy="365.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bar Counter</title></circle>
+<circle cx="485.0" cy="330.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bar Counter</title></circle>
+<circle cx="462.0" cy="364.4" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="474.0" cy="365.0" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel</title></circle>
+<circle cx="484.4" cy="354.0" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="426.0" cy="319.6" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="462.0" cy="319.6" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="426.0" cy="342.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="426.0" cy="330.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="450.0" cy="342.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Round</title></circle>
+<circle cx="402.0" cy="342.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Round</title></circle>
+<circle cx="474.0" cy="342.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Round</title></circle>
+<circle cx="426.0" cy="354.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="390.0" cy="365.0" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Fireplace Stone</title></circle>
+<circle cx="390.0" cy="399.2" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bed Single</title></circle>
+<circle cx="474.0" cy="399.2" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bed Single</title></circle>
+<circle cx="485.6" cy="378.0" r="2.6" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="402.0" cy="375.4" r="2.6" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Cabinet 01</title></circle>
+<circle cx="377.2" cy="378.0" r="2.6" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Candle Stand</title></circle>
+<circle cx="126.0" cy="18.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="90.0" cy="18.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="486.0" cy="18.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="162.0" cy="18.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="270.0" cy="30.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="438.0" cy="18.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="570.0" cy="18.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="30.0" cy="30.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="306.0" cy="18.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="354.0" cy="30.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="330.0" cy="30.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="654.0" cy="18.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="534.0" cy="30.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="414.0" cy="30.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="222.0" cy="30.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="246.0" cy="30.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="42.0" cy="102.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="42.0" cy="186.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="54.0" cy="414.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="42.0" cy="66.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="30.0" cy="378.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="42.0" cy="150.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="42.0" cy="126.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="18.0" cy="342.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="18.0" cy="306.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="42.0" cy="282.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="18.0" cy="138.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="42.0" cy="234.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="18.0" cy="54.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="18.0" cy="450.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="30.0" cy="414.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="54.0" cy="342.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="54.0" cy="306.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="18.0" cy="234.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="54.0" cy="210.0" r="5.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 02</title></circle>
+<circle cx="642.0" cy="282.0" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Fireplace Stone</title></circle>
+<circle cx="664.9" cy="401.9" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Rock 01</title></circle>
+<circle cx="702.0" cy="270.0" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Fireplace Stone</title></circle>
+<circle cx="654.6" cy="341.3" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Rock 01</title></circle>
+<circle cx="690.0" cy="354.0" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Boulder Large</title></circle>
+<circle cx="594.7" cy="402.6" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Rock 01</title></circle>
+<circle cx="558.0" cy="378.0" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Fountain Stone</title></circle>
+<circle cx="714.0" cy="282.0" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Fireplace Stone</title></circle>
+<circle cx="654.0" cy="438.0" r="2.6" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Fireplace Stone</title></circle>
+<text x="162.0" y="210.0" text-anchor="middle" font-size="10.2" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">Brann&#39;s Smithy</text>
+<text x="474.0" y="204.0" text-anchor="middle" font-size="10.2" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">Chapel of the Dawn</text>
+<text x="156.0" y="330.0" text-anchor="middle" font-size="10.2" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">Cottage</text>
+<text x="243.7" y="374.1" text-anchor="middle" font-size="10.2" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">Cottage</text>
+<text x="432.0" y="360.0" text-anchor="middle" font-size="10.2" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">The Mill Wheel (2F)</text>
+</svg>

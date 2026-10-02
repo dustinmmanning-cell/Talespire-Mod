@@ -2742,7 +2742,8 @@
           const gate = this.kit.gate();
           for (let k = 0; k < courses; k++) {
             const crenel = bar.kind === 'fortification' && k === courses - 1 ? this.kit.crenellation() : null;
-            this.emitWallEdges(owned.map((o) => ({ ...o, type: o.type === 'gate' ? (k === 0 ? 'gate' : 'open') : o.type })), wk, this.top + k * wk.height, 'barrier', {
+            // The gate fills the bottom course; masonry continues over it.
+            this.emitWallEdges(owned.map((o) => ({ ...o, type: o.type === 'gate' ? (k === 0 ? 'gate' : 'wall') : o.type })), wk, this.top + k * wk.height, 'barrier', {
               door, gate, crenel, skipChance: bar.kind === 'ruined_wall' ? 0.25 : 0,
             });
           }

@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -26 480 426" width="480" height="426" font-family="Georgia, serif">
+<rect x="0" y="-26" width="480" height="426" fill="#1b1b1f"/>
+<text x="6" y="-8" fill="#f0e6d0" font-size="15">The Prancing Gryphon  <tspan fill="#9a948a" font-size="11">24x20 tiles, 970 assets</tspan></text>
+<rect x="0" y="0" width="480" height="20" fill="#6d9b4a"/>
+<rect x="0" y="20" width="480" height="20" fill="#6d9b4a"/>
+<rect x="0" y="40" width="480" height="20" fill="#6d9b4a"/>
+<rect x="0" y="60" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="60" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="60" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="80" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="80" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="80" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="100" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="100" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="100" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="120" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="120" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="120" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="140" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="140" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="140" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="160" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="160" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="160" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="180" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="180" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="180" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="200" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="200" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="200" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="220" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="220" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="220" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="240" width="80" height="20" fill="#6d9b4a"/>
+<rect x="80" y="240" width="320" height="20" fill="#a9773f"/>
+<rect x="400" y="240" width="80" height="20" fill="#6d9b4a"/>
+<rect x="0" y="260" width="60" height="20" fill="#6d9b4a"/>
+<rect x="60" y="260" width="360" height="20" fill="#8a6a45"/>
+<rect x="420" y="260" width="60" height="20" fill="#6d9b4a"/>
+<rect x="0" y="280" width="60" height="20" fill="#6d9b4a"/>
+<rect x="60" y="280" width="360" height="20" fill="#8a6a45"/>
+<rect x="420" y="280" width="60" height="20" fill="#6d9b4a"/>
+<rect x="0" y="300" width="60" height="20" fill="#6d9b4a"/>
+<rect x="60" y="300" width="360" height="20" fill="#8a6a45"/>
+<rect x="420" y="300" width="60" height="20" fill="#6d9b4a"/>
+<rect x="0" y="320" width="60" height="20" fill="#6d9b4a"/>
+<rect x="60" y="320" width="360" height="20" fill="#8a6a45"/>
+<rect x="420" y="320" width="60" height="20" fill="#6d9b4a"/>
+<rect x="0" y="340" width="480" height="20" fill="#8c8c8c"/>
+<rect x="0" y="360" width="480" height="20" fill="#8c8c8c"/>
+<rect x="0" y="380" width="480" height="20" fill="#8c8c8c"/>
+<path d="M100 0V400M200 0V400M300 0V400M400 0V400M0 100H480M0 200H480M0 300H480" stroke="#000" stroke-opacity="0.12" stroke-width="1"/>
+<path d="M80 62.4L100 62.4M82.4 60L82.4 80M100 62.4L120 62.4M140 62.4L160 62.4M160 62.4L180 62.4M180 62.4L200 62.4M220 62.4L240 62.4M237.6 60L237.6 80M240 62.4L260 62.4M260 62.4L280 62.4M300 62.4L320 62.4M320 62.4L340 62.4M340 62.4L360 62.4M380 62.4L400 62.4M397.6 60L397.6 80M82.4 80L82.4 100M397.6 80L397.6 100M80 117.6L100 117.6M100 117.6L120 117.6M120 117.6L140 117.6M140 117.6L160 117.6M180 117.6L200 117.6M200 117.6L220 117.6M237.6 100L237.6 120M220 117.6L240 117.6M240 117.6L260 117.6M260 117.6L280 117.6M280 117.6L300 117.6M300 117.6L320 117.6M320 117.6L340 117.6M340 117.6L360 117.6M360 117.6L380 117.6M380 117.6L400 117.6M82.4 120L82.4 140M397.6 120L397.6 140M82.4 140L82.4 160M397.6 140L397.6 160M82.4 160L82.4 180M397.6 160L397.6 180M82.4 200L82.4 220M397.6 200L397.6 220M82.4 220L82.4 240M397.6 220L397.6 240M80 257.6L100 257.6M82.4 240L82.4 260M100 257.6L120 257.6M140 257.6L160 257.6M160 257.6L180 257.6M180 257.6L200 257.6M200 257.6L220 257.6M240 257.6L260 257.6M260 257.6L280 257.6M300 257.6L320 257.6M320 257.6L340 257.6M340 257.6L360 257.6M397.6 240L397.6 260M380 257.6L400 257.6" stroke="#2a2522" stroke-width="4.8" stroke-linecap="square"/>
+<path d="M120 62.4L140 62.4M200 62.4L220 62.4M280 62.4L300 62.4M360 62.4L380 62.4M82.4 100L82.4 120M397.6 100L397.6 120M82.4 180L82.4 200M397.6 180L397.6 200M120 257.6L140 257.6M280 257.6L300 257.6M360 257.6L380 257.6M42.4 260L42.4 280M42.4 280L42.4 300M42.4 300L42.4 320M42.4 320L42.4 340" stroke="#9fd3f2" stroke-width="3.5999999999999996"/>
+<path d="M237.6 80L237.6 100M160 117.6L180 117.6M220 257.6L240 257.6" stroke="#e8a33d" stroke-width="6"/>
+<circle cx="50.0" cy="270.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Harbor Fence 02</title></circle>
+<circle cx="50.0" cy="310.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Harbor Fence 02</title></circle>
+<circle cx="330.0" cy="310.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Well 01</title></circle>
+<circle cx="130.0" cy="310.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Cart 01</title></circle>
+<circle cx="370.0" cy="126.6" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bar Counter</title></circle>
+<circle cx="91.6" cy="230.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bar Counter</title></circle>
+<circle cx="210.0" cy="247.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="170.0" cy="248.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel</title></circle>
+<circle cx="270.0" cy="247.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="330.0" cy="127.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="230.0" cy="127.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="190.0" cy="126.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel</title></circle>
+<circle cx="230.0" cy="190.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Round</title></circle>
+<circle cx="270.0" cy="190.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Round</title></circle>
+<circle cx="250.0" cy="150.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="230.0" cy="230.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="210.0" cy="150.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Round</title></circle>
+<circle cx="270.0" cy="150.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="310.0" cy="248.4" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Fireplace Stone</title></circle>
+<circle cx="110.0" cy="73.6" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Stove 01</title></circle>
+<circle cx="150.0" cy="90.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="190.0" cy="72.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="210.0" cy="72.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="230.4" cy="110.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Sack of Grain</title></circle>
+<circle cx="89.6" cy="110.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Sack of Grain</title></circle>
+<circle cx="130.0" cy="69.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Sack of Grain</title></circle>
+<circle cx="210.0" cy="109.8" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Bookshelf 01</title></circle>
+<circle cx="310.0" cy="107.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Crate 01</title></circle>
+<circle cx="330.0" cy="72.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Crate 01</title></circle>
+<circle cx="250.0" cy="107.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Crate 01</title></circle>
+<circle cx="270.0" cy="72.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Crate 01</title></circle>
+<circle cx="330.0" cy="107.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Crate 01</title></circle>
+<circle cx="350.0" cy="107.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Crate 01</title></circle>
+<circle cx="370.0" cy="71.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel</title></circle>
+<circle cx="350.0" cy="71.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel</title></circle>
+<circle cx="310.0" cy="72.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="290.0" cy="107.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="370.0" cy="107.4" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Barrel, Wine</title></circle>
+<circle cx="290.0" cy="69.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Sack of Grain</title></circle>
+<circle cx="250.0" cy="69.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Sack of Grain</title></circle>
+<circle cx="390.4" cy="90.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Sack of Grain</title></circle>
+<circle cx="390.4" cy="70.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Sack of Grain</title></circle>
+<circle cx="310.0" cy="30.0" r="9.0" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="270.0" cy="30.0" r="9.0" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="210.0" cy="30.0" r="9.0" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Tree 01</title></circle>
+<circle cx="370.0" cy="30.0" r="9.0" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Pine Tree 01</title></circle>
+<circle cx="429.6" cy="189.1" r="4.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Bush 01</title></circle>
+<circle cx="430.1" cy="250.5" r="4.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Bush 01</title></circle>
+<text x="240.0" y="160.0" text-anchor="middle" font-size="14" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">The Prancing Gryphon (2F)</text>
+</svg>

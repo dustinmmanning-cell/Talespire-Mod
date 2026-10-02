@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -26 600 466" width="600" height="466" font-family="Georgia, serif">
+<rect x="0" y="-26" width="600" height="466" fill="#1b1b1f"/>
+<text x="6" y="-8" fill="#f0e6d0" font-size="15">Crypt of the Ash King  <tspan fill="#9a948a" font-size="11">30x22 tiles, 173 assets</tspan></text>
+<rect x="320" y="0" width="120" height="20" fill="#7d7a76"/>
+<rect x="320" y="20" width="120" height="20" fill="#7d7a76"/>
+<rect x="360" y="40" width="40" height="20" fill="#7d7a76"/>
+<rect x="360" y="60" width="40" height="20" fill="#7d7a76"/>
+<rect x="360" y="80" width="40" height="20" fill="#7d7a76"/>
+<rect x="280" y="100" width="180" height="20" fill="#7d7a76"/>
+<rect x="280" y="120" width="180" height="20" fill="#7d7a76"/>
+<rect x="280" y="140" width="180" height="20" fill="#7d7a76"/>
+<rect x="520" y="140" width="80" height="20" fill="#7d7a76"/>
+<rect x="40" y="160" width="120" height="20" fill="#7d7a76"/>
+<rect x="280" y="160" width="180" height="20" fill="#7d7a76"/>
+<rect x="520" y="160" width="80" height="20" fill="#7d7a76"/>
+<rect x="40" y="180" width="120" height="20" fill="#7d7a76"/>
+<rect x="280" y="180" width="180" height="20" fill="#7d7a76"/>
+<rect x="520" y="180" width="80" height="20" fill="#7d7a76"/>
+<rect x="40" y="200" width="560" height="20" fill="#7d7a76"/>
+<rect x="40" y="220" width="560" height="20" fill="#7d7a76"/>
+<rect x="40" y="240" width="120" height="20" fill="#7d7a76"/>
+<rect x="280" y="240" width="180" height="20" fill="#7d7a76"/>
+<rect x="520" y="240" width="80" height="20" fill="#7d7a76"/>
+<rect x="40" y="260" width="120" height="20" fill="#7d7a76"/>
+<rect x="280" y="260" width="180" height="20" fill="#7d7a76"/>
+<rect x="520" y="260" width="80" height="20" fill="#7d7a76"/>
+<rect x="280" y="280" width="180" height="20" fill="#7d7a76"/>
+<rect x="520" y="280" width="80" height="20" fill="#7d7a76"/>
+<rect x="280" y="300" width="180" height="20" fill="#7d7a76"/>
+<rect x="280" y="320" width="180" height="20" fill="#7d7a76"/>
+<path d="M100 0V440M200 0V440M300 0V440M400 0V440M500 0V440M0 100H600M0 200H600M0 300H600M0 400H600" stroke="#000" stroke-opacity="0.12" stroke-width="1"/>
+<path d="M320 2.4L340 2.4M322.4 0L322.4 20M340 2.4L360 2.4M360 2.4L380 2.4M380 2.4L400 2.4M400 2.4L420 2.4M420 2.4L440 2.4M437.6 0L437.6 20M320 37.6L340 37.6M322.4 20L322.4 40M340 37.6L360 37.6M400 37.6L420 37.6M437.6 20L437.6 40M420 37.6L440 37.6M362.4 40L362.4 60M397.6 40L397.6 60M362.4 60L362.4 80M397.6 60L397.6 80M362.4 80L362.4 100M397.6 80L397.6 100M280 102.4L300 102.4M282.4 100L282.4 120M300 102.4L320 102.4M320 102.4L340 102.4M340 102.4L360 102.4M400 102.4L420 102.4M420 102.4L440 102.4M440 102.4L460 102.4M457.6 100L457.6 120M282.4 120L282.4 140M457.6 120L457.6 140M282.4 140L282.4 160M457.6 140L457.6 160M520 142.4L540 142.4M522.4 140L522.4 160M540 142.4L560 142.4M560 142.4L580 142.4M580 142.4L600 142.4M597.6 140L597.6 160M40 162.4L60 162.4M42.4 160L42.4 180M60 162.4L80 162.4M80 162.4L100 162.4M100 162.4L120 162.4M120 162.4L140 162.4M140 162.4L160 162.4M157.6 160L157.6 180M282.4 160L282.4 180M457.6 160L457.6 180M522.4 160L522.4 180M597.6 160L597.6 180M42.4 180L42.4 200M157.6 180L157.6 200M282.4 180L282.4 200M457.6 180L457.6 200M522.4 180L522.4 200M597.6 180L597.6 200M160 202.4L180 202.4M180 202.4L200 202.4M200 202.4L220 202.4M220 202.4L240 202.4M240 202.4L260 202.4M260 202.4L280 202.4M460 202.4L480 202.4M480 202.4L500 202.4M500 202.4L520 202.4M597.6 200L597.6 220M42.4 220L42.4 240M160 237.6L180 237.6M180 237.6L200 237.6M200 237.6L220 237.6M220 237.6L240 237.6M240 237.6L260 237.6M260 237.6L280 237.6M460 237.6L480 237.6M480 237.6L500 237.6M500 237.6L520 237.6M597.6 220L597.6 240M42.4 240L42.4 260M157.6 240L157.6 260M282.4 240L282.4 260M457.6 240L457.6 260M522.4 240L522.4 260M597.6 240L597.6 260M40 277.6L60 277.6M42.4 260L42.4 280M60 277.6L80 277.6M80 277.6L100 277.6M100 277.6L120 277.6M120 277.6L140 277.6M157.6 260L157.6 280M140 277.6L160 277.6M282.4 260L282.4 280M457.6 260L457.6 280M522.4 260L522.4 280M597.6 260L597.6 280M282.4 280L282.4 300M457.6 280L457.6 300M520 297.6L540 297.6M522.4 280L522.4 300M540 297.6L560 297.6M560 297.6L580 297.6M597.6 280L597.6 300M580 297.6L600 297.6M282.4 300L282.4 320M457.6 300L457.6 320M280 337.6L300 337.6M282.4 320L282.4 340M300 337.6L320 337.6M320 337.6L340 337.6M340 337.6L360 337.6M360 337.6L380 337.6M380 337.6L400 337.6M400 337.6L420 337.6M420 337.6L440 337.6M457.6 320L457.6 340M440 337.6L460 337.6" stroke="#2a2522" stroke-width="4.8" stroke-linecap="square"/>
+<path d="" stroke="#9fd3f2" stroke-width="3.5999999999999996"/>
+<path d="M42.4 200L42.4 220M517.6 200L517.6 220" stroke="#e8a33d" stroke-width="6"/>
+<circle cx="370.0" cy="310.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Throne</title></circle>
+<circle cx="320.0" cy="140.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Pillar Stone</title></circle>
+<circle cx="420.0" cy="140.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Pillar Stone</title></circle>
+<circle cx="320.0" cy="280.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Pillar Stone</title></circle>
+<circle cx="420.0" cy="280.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Pillar Stone</title></circle>
+<circle cx="90.0" cy="210.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="110.0" cy="230.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="110.0" cy="190.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Table Long</title></circle>
+<circle cx="52.6" cy="230.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Banner Red</title></circle>
+<circle cx="52.6" cy="190.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Banner Red</title></circle>
+<circle cx="70.0" cy="172.6" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Banner Red</title></circle>
+<circle cx="130.0" cy="263.4" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Fireplace Stone</title></circle>
+<circle cx="190.0" cy="212.6" r="4.4" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Torch Wall</title></circle>
+<circle cx="370.0" cy="210.0" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="390.0" cy="230.0" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="370.0" cy="190.0" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="350.0" cy="250.0" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="330.0" cy="210.0" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="410.0" cy="210.0" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="390.0" cy="250.0" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="370.0" cy="170.0" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="442.4" cy="170.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Skull Pile</title></circle>
+<circle cx="430.0" cy="118.6" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="298.6" cy="170.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="441.4" cy="270.0" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Coffin</title></circle>
+<circle cx="390.0" cy="326.4" r="4.4" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Candle Stand</title></circle>
+<circle cx="446.4" cy="310.0" r="4.4" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Candle Stand</title></circle>
+<circle cx="310.0" cy="113.6" r="4.4" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Candle Stand</title></circle>
+<circle cx="430.0" cy="320.4" r="4.4" fill="#d9d0f0" stroke="#000" stroke-opacity="0.5"><title>Statue Knight</title></circle>
+<circle cx="372.6" cy="70.0" r="4.4" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Torch Wall</title></circle>
+<circle cx="410.0" cy="21.4" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Skeleton Sitting</title></circle>
+<circle cx="350.0" cy="18.6" r="4.4" fill="#7a4a1f" stroke="#000" stroke-opacity="0.5"><title>Skeleton Sitting</title></circle>
+<circle cx="390.0" cy="15.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="490.0" cy="227.4" r="4.4" fill="#f2c14e" stroke="#000" stroke-opacity="0.5"><title>Torch Wall</title></circle>
+<circle cx="584.4" cy="170.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="535.6" cy="190.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="584.4" cy="230.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="584.4" cy="210.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="550.0" cy="155.6" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="584.4" cy="190.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="535.6" cy="270.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="584.4" cy="270.0" r="4.4" fill="#b07a3c" stroke="#000" stroke-opacity="0.5"><title>Chest 01</title></circle>
+<circle cx="550.0" cy="210.0" r="4.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Crystal Cluster</title></circle>
+<circle cx="570.0" cy="210.0" r="4.4" fill="#2f5d27" stroke="#000" stroke-opacity="0.5"><title>Crystal Cluster</title></circle>
+<text x="348.6" y="204.4" text-anchor="middle" font-size="14" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">Crypt of the Ash King</text>
+</svg>
