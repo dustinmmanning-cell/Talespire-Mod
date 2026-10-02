@@ -230,7 +230,7 @@ function loadCatalog() {
 }
 
 const tsPacks = {
-  getContentPacks: () => tsCall(() => TS.contentPacks.getContentPacks()),
+  getContentPacks: async () => (state.packFragments = await tsCall(() => TS.contentPacks.getContentPacks())),
   getMoreInfo: (frags) => tsCall(() => TS.contentPacks.getMoreInfo(frags)),
 };
 
@@ -243,7 +243,10 @@ function packDiagnostics() {
     catalogError: state.catalogError || null,
     skippedPacks: state.skippedPacks || [],
     assets: state.catalog ? state.catalog.size : 0,
-    shapes: state.packInfos ? TF.describePackShapes(state.packInfos) : null,
+    boundsScale: state.catalog ? state.catalog.meta.boundsScale : null,
+    packsWithAssets: state.catalog ? state.catalog.meta.packs : [],
+    fragments: (state.packFragments || []).slice(0, 30).map((f) => (f && typeof f === 'object' ? { id: f.id, optionalName: f.optionalName, keys: Object.keys(f) } : f)),
+    shapes: state.packInfos ? TF.describePackShapes(state.packInfos, { names: state.packNames || [] }) : null,
   }, null, 1);
 }
 
@@ -268,7 +271,8 @@ async function readCatalog() {
       skipped = res.skipped;
       state.skippedPacks = skipped;
       state.packInfos = res.infos;
-      state.catalog = TF.Catalog.fromContentPacks(res.infos);
+      state.packNames = res.names;
+      state.catalog = TF.Catalog.fromContentPacks(res.infos, res.names);
       if (!state.catalog.size) throw new Error(`your ${res.infos.length} asset pack(s) contain no tiles or props`);
     } else {
       state.catalog = TF.demoCatalog();
@@ -276,6 +280,7 @@ async function readCatalog() {
     const tiles = state.catalog.assets.filter((a) => a.kind === 'tile').length;
     chip.textContent = `${state.catalog.size.toLocaleString()} assets`;
     chip.title = `${tiles} tiles, ${state.catalog.size - tiles} props from ${(state.catalog.meta.packs || []).length} pack(s)` +
+      (state.catalog.meta.packs && state.catalog.meta.packs.length ? `: ${state.catalog.meta.packs.join(', ')}` : '') +
       (skipped.length ? `\nSkipped: ${skipped.map((s) => s.name).join(', ')}` : '');
     chip.className = state.catalog.meta.synthetic ? 'chip warn' : 'chip ok';
     banner('catalog', null);

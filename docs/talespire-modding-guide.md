@@ -141,6 +141,15 @@ Subscriptions (event sources):
 
 `contentPacks.getMoreInfo` returns every tile, prop and creature the client has loaded. Each placeable element is `{ id, name, isDeprecated, groupTag, tags[], assets[], isInteractable, colliderBoundsBound: { center, width, height, depth }, icon }`. That's enough to build an asset catalog at runtime, with no hardcoded GUIDs, and it includes any modded content packs. `findBoardObjectInPacks(id, packs)` combined with `createThumbnailElementForBoardObject(obj, size)` gives you the library thumbnail as a DOM element.
 
+**What the game actually returns differs from the docs** (seen in TaleSpire in October 2026, in a web view reporting Chrome 111):
+
+- `tiles` and `props` are **objects keyed by asset GUID**, not arrays. Each value still carries its own `id`.
+- Pack details have **no `id`**: the keys are `optionalName`, `tiles`, `props`, `creatures` and `music`, and `optionalName` was empty. Take pack names from `getContentPacks()` and match them up by order.
+- `icon` is `{ atlas, region }`, not `{ atlasIndex, region }`.
+- In one install, 26 packs came back, but only 2 had tiles or props: 1,396 + 1,035 and 364 + 494, for 3,289 in all.
+
+Code that does `for (const t of pack.tiles)` fails with "object is not iterable". Read the values instead (`Object.values(pack.tiles)`), and accept arrays too in case a later build follows the docs.
+
 ### Theme extras
 
 - `colorStyles` injects CSS variables: `--ts-color-primary`, `--ts-background-primary` / `-secondary` / `-tertiary`, `--ts-accent-primary` / `-hover` / `-background`, `--ts-button-background` / `-hover`, `--ts-color-danger`, `--ts-link`, and `--ts-accessibility-border` / `-focus`.
@@ -308,6 +317,8 @@ See [slab-format.md](slab-format.md) for the byte layout, GUID order, size limit
 6. **Normalize by whole tiles.** Shifting a build by a fractional minimum (one overhanging prop) moves every tile off the grid that minis snap to.
 7. **Two install locations for Symbiotes** (manual and mod.io) mean two separate storage areas.
 8. **Bug reports go from unmodded clients.** Disable BepInEx before reporting to Bouncyrock.
+9. **Don't trust the Symbiote API types blindly.** `contentPacks.getMoreInfo` returns objects where the docs say arrays; see [the content-pack catalog](#the-content-pack-catalog). Treat API data defensively and log its shape when something fails.
+10. **The Symbiote web view is not a current Chrome.** It reported Chrome 111, so check newer JavaScript and CSS features (for example `Object.groupBy`, the `Set` methods, async iteration of a `fetch` body, CSS nesting) before using them.
 
 ---
 

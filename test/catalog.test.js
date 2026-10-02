@@ -100,3 +100,26 @@ test('content packs: tiles and props in shapes other than an array still load', 
   assert.equal(d.packs[0].tiles.first.colliderBoundsBound, 'object{center,width,height,depth}');
   assert.ok(JSON.stringify(d).length < 2000);
 });
+
+test('content packs: the real TaleSpire shape (keyed by GUID, no pack id) loads with pack names', async () => {
+  // As reported from TaleSpire: pack details have no id, and tiles/props are
+  // objects keyed by asset GUID. Names come from the pack list instead.
+  const real = (p) => ({ optionalName: undefined, tiles: Object.fromEntries(p.tiles.map((t) => [t.id, t])), props: {}, creatures: {}, music: [] });
+  const core = pack('core', 3);
+  const empty = pack('creatures', 0);
+  const packs = [core, empty];
+  const api = {
+    getContentPacks: async () => packs.map(frag),
+    getMoreInfo: async (frags) => frags.map((f) => real(packs.find((p) => p.id === f.id))),
+  };
+  const res = await readContentPacks(api);
+  assert.deepEqual(res.names, ['core', 'creatures']);
+  const cat = Catalog.fromContentPacks(res.infos, res.names);
+  assert.equal(cat.size, 3);
+  assert.equal(cat.get(core.tiles[0].id).pack, 'core');
+  assert.deepEqual(cat.meta.packs, ['core'], 'only packs that contributed assets');
+  assert.equal(cat.meta.packsLoaded, 2);
+  // one pack at a time keeps the names too
+  const bad = { ...api, getMoreInfo: async (frags) => (frags.length > 1 ? Promise.reject(new Error('boom')) : api.getMoreInfo(frags)) };
+  assert.deepEqual((await readContentPacks(bad)).names, ['core', 'creatures']);
+});

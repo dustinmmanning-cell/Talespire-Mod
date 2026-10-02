@@ -34,7 +34,7 @@ function contentPacks() {
   const el = (a) => ({
     id: a.id, name: a.name, isDeprecated: false, groupTag: a.group, tags: a.tags, assets: [], isInteractable: false,
     colliderBoundsBound: { center: { locId: 0, ...a.center }, width: a.size.x, height: a.size.y, depth: a.size.z },
-    icon: { atlasIndex: 0, region: { x: 0, y: 0, width: 0, height: 0 } },
+    icon: { atlas: 0, region: { x: 0, y: 0, width: 0, height: 0 } },
   });
   return [{
     id: 'core', optionalName: 'TaleSpire',
@@ -97,14 +97,20 @@ function fakeTs({ packs, opts = {} }) {
         if (opts.packsFailUntilOk && !window.__packsOk) throw { cause: 'internalError', message: 'not ready' };
         return packs.map((p) => ({ id: p.id, optionalName: p.optionalName }));
       },
+      // Shaped like real TaleSpire answers (not the docs): no pack id, and
+      // tiles/props as objects keyed by asset GUID.
       getMoreInfo: async (frags) => {
         window.__moreInfoCalls = (window.__moreInfoCalls || 0) + 1;
         if (frags.some((f) => f.id === opts.badPack)) return { cause: 'internalError' };
-        return frags.map((f) => packs.find((p) => p.id === f.id));
+        const keyed = (v) => Object.fromEntries((Array.isArray(v) ? v : Object.values(v || {})).map((e) => [e.id, e]));
+        return frags.map((f) => {
+          const p = packs.find((x) => x.id === f.id);
+          return { optionalName: undefined, tiles: keyed(p.tiles), props: keyed(p.props), creatures: {}, music: [] };
+        });
       },
-      findBoardObjectInPacks: async (id) => {
-        for (const p of packs) for (const k of ['tiles', 'props']) {
-          const b = p[k].find((x) => x.id === id);
+      findBoardObjectInPacks: async (id, infos) => {
+        for (const p of infos) for (const k of ['tiles', 'props']) {
+          const b = p[k][id];
           if (b) return { contentPackInfo: p, kind: k === 'tiles' ? 'tile' : 'prop', boardObject: b };
         }
         return { cause: 'notFound' };
@@ -261,7 +267,7 @@ await page2.goto('file://' + join(root, 'symbiote/index.html'));
 await page2.evaluate(() => window.handleStateChange({ kind: 'hasInitialized', payload: {} }));
 await page2.waitForFunction(() => /assets$/.test(document.getElementById('catalog-status').textContent));
 assert.equal(await page2.textContent('#catalog-status'), `${assetCount + 2} assets`);
-assert.match(await page2.getAttribute('#catalog-status', 'title'), /Skipped: Some Mod Pack/);
+assert.match(await page2.getAttribute('#catalog-status', 'title'), /from 2 pack\(s\): TaleSpire, Keyed Pack\nSkipped: Some Mod Pack/);
 assert.ok(!(await page2.textContent('#banner')).includes('Could not read'));
 await page2.click('[data-tab="kit"]');
 assert.match(await page2.textContent('#kit-skipped'), /couldn't describe 1 asset pack\(s\).*Some Mod Pack \(TaleSpire: internalError\)/);
@@ -270,7 +276,10 @@ await page2.click('#pack-diagnostics');
 const diag = JSON.parse(await page2.evaluate(() => window.__clip.at(-1)));
 assert.equal(diag.assets, assetCount + 2);
 assert.deepEqual(diag.skippedPacks, [{ name: 'Some Mod Pack', error: 'TaleSpire: internalError' }]);
-assert.equal(diag.shapes.packs.find((x) => x.id === 'keyed-pack').tiles.type, 'object');
+assert.equal(diag.shapes.packs.find((x) => x.name === 'Keyed Pack').tiles.type, 'object');
+assert.deepEqual(diag.packsWithAssets, ['TaleSpire', 'Keyed Pack']);
+assert.equal(diag.boundsScale, 1);
+assert.equal(diag.fragments.length, 3);
 assert.ok(JSON.stringify(diag).length < 6000, 'diagnostics stay short enough to paste');
 await page2.close();
 

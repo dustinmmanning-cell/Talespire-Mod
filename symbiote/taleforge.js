@@ -397,14 +397,15 @@
       return half > full ? 2 : 1;
     }
 
-    function  assetsFromContentPacks(packInfos) {
-      const packs = listOf(packInfos).filter((p) => p && typeof p === 'object');
+    function  assetsFromContentPacks(packInfos, names = []) {
+      const packs = listOf(packInfos);
       const tiles = [];
-      for (const p of packs) for (const t of listOf(p.tiles)) tiles.push(t);
+      for (const p of packs) for (const t of listOf(p && p.tiles)) tiles.push(t);
       const scale = inferBoundsScale(tiles);
       const out = [];
-      for (const pack of packs) {
-        const packName = pack.optionalName || pack.id || '';
+      for (const [i, pack] of packs.entries()) {
+        if (!pack || typeof pack !== 'object') continue;
+        const packName = names[i] || pack.optionalName || pack.id || '';
         for (const [key, kind] of [['tiles', 'tile'], ['props', 'prop']]) {
           for (const e of listOf(pack[key])) {
             if (!e || typeof e !== 'object' || !e.id || typeof e.id !== 'string') continue;
@@ -423,10 +424,11 @@
       return { assets: out, boundsScale: scale };
     }
 
-    // The docs say tiles and props are arrays, but TaleSpire has been seen
-    // sending something else for them (possibly only for some mods' packs).
-    // Accept arrays, .NET-style { $values: [...] } wrappers, array-likes, other
-    // iterables, and objects keyed by asset id.
+    // The docs say tiles and props are arrays. In TaleSpire (seen 2026-10, web
+    // view Chrome 111) getMoreInfo returns every pack as
+    //   { optionalName, tiles: { <guid>: element }, props: { <guid>: element }, creatures, music }
+    // with no pack id, and icon as { atlas, region }. Accept that, arrays, .NET
+    // style { $values: [...] } wrappers, array-likes and other iterables.
     const GUID_KEY = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
     const isElement = (e) => !!e && typeof e === 'object' && ('id' in e || 'name' in e);
     function  listOf(v) {
@@ -443,7 +445,7 @@
 
     // A short description of what TaleSpire sent for each pack, for bug reports:
     // the shapes of the fields, never the whole catalog.
-    function  describePackShapes(packInfos, { maxPacks = 30 } = {}) {
+    function  describePackShapes(packInfos, { maxPacks = 30, names = [] } = {}) {
       const shape = (v) => {
         if (Array.isArray(v)) return { type: 'array', length: v.length, first: v.length ? shapeOfItem(v[0]) : null };
         if (v && typeof v === 'object') {
@@ -463,9 +465,9 @@
       const top = Array.isArray(packInfos) ? packInfos : [packInfos];
       return {
         packInfos: Array.isArray(packInfos) ? `array(${packInfos.length})` : shape(packInfos).type,
-        packs: top.slice(0, maxPacks).map((p) =>
+        packs: top.slice(0, maxPacks).map((p, i) =>
           p && typeof p === 'object'
-            ? { id: String(p.id).slice(0, 60), name: p.optionalName, keys: Object.keys(p), tiles: shape(p.tiles), props: shape(p.props) }
+            ? { name: names[i] || p.optionalName || p.id || null, keys: Object.keys(p), tiles: shape(p.tiles), props: shape(p.props) }
             : { type: typeof p },
         ),
       };
@@ -483,20 +485,24 @@
       if (!frags.length) throw new Error('TaleSpire reported no loaded asset packs');
       try {
         const infos = packInfoList(await api.getMoreInfo(frags));
-        if (infos.length) return { infos, skipped: [] };
+        // Assume answers come back in the order asked, but only when the counts match.
+        if (infos.length) return { infos, names: infos.length === frags.length ? frags.map(fragName) : infos.map(() => null), skipped: [] };
         log('content packs: details for all packs came back empty; asking one pack at a time');
       } catch (e) {
         log(`content packs: details for all ${frags.length} packs failed (${e.message}); asking one pack at a time`);
       }
       const infos = [];
+      const names = [];
       const skipped = [];
       for (const f of frags) {
-        const name = (f && (f.optionalName || f.id)) || String(f);
+        const name = fragName(f);
         for (let attempt = 0; ; attempt++) {
           try {
             const got = packInfoList(await api.getMoreInfo([f]));
-            if (got.length) infos.push(...got);
-            else skipped.push({ name, error: 'no details' });
+            if (got.length) {
+              infos.push(...got);
+              names.push(...got.map(() => name));
+            } else skipped.push({ name, error: 'no details' });
             break;
           } catch (e) {
             if (e && e.code === 'rateLimited' && attempt < 2) {
@@ -512,7 +518,11 @@
       if (!infos.length) {
         throw new Error(`TaleSpire could not describe any of your ${frags.length} asset pack(s). First error: ${skipped[0].error}`);
       }
-      return { infos, skipped };
+      return { infos, names, skipped };
+    }
+
+    function fragName(f) {
+      return (f && typeof f === 'object' ? f.optionalName || f.id : f) || null;
     }
 
     function packInfoList(v) {
@@ -646,11 +656,15 @@
         return new Catalog(assets, { source: 'install', packs });
       }
 
-      static fromContentPacks(packInfos) {
-        const { assets, boundsScale } = assetsFromContentPacks(packInfos);
+      // names: optional pack names, parallel to packInfos (TaleSpire's pack
+      // details carry no id or name; the pack list does).
+      static fromContentPacks(packInfos, names = []) {
+        const { assets, boundsScale } = assetsFromContentPacks(packInfos, names);
+        const used = new Set(assets.map((a) => a.pack));
         return new Catalog(assets, {
           source: 'symbiote',
-          packs: packInfos.map((p) => p.optionalName || p.id),
+          packs: [...used].map((n) => n || 'unnamed pack'),
+          packsLoaded: listOf(packInfos).length,
           boundsScale,
         });
       }
