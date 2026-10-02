@@ -105,10 +105,27 @@ async function tsCall(fn) {
     r = await fn();
   } catch (e) {
     const cause = (e && (e.cause || (e.payload && e.payload.cause))) || null;
-    throw new Error(CAUSES[cause] || (cause ? `TaleSpire: ${cause}` : e && e.message ? e.message : String(e)));
+    throw tsError(cause, e && e.message ? e.message : describeValue(e));
   }
-  if (r && typeof r === 'object' && r.cause !== undefined) throw new Error(CAUSES[r.cause] || `TaleSpire: ${r.cause}`);
+  if (r && typeof r === 'object' && !Array.isArray(r) && r.cause !== undefined) throw tsError(r.cause);
   return r;
+}
+
+function tsError(cause, fallback) {
+  const code = typeof cause === 'string' ? cause : null;
+  const text = CAUSES[code] || (cause ? `TaleSpire: ${typeof cause === 'string' ? cause : describeValue(cause)}` : fallback || 'TaleSpire call failed');
+  const err = new Error(text);
+  err.code = code;
+  return err;
+}
+
+function describeValue(v) {
+  if (v === null || v === undefined || typeof v !== 'object') return String(v);
+  try {
+    return JSON.stringify(v).slice(0, 200);
+  } catch {
+    return Object.prototype.toString.call(v);
+  }
 }
 
 function debug(msg) {
@@ -205,29 +222,62 @@ async function boot(inTS) {
   }
 }
 
-async function loadCatalog() {
+// One load at a time: boot and onContentPackChange can both ask for one.
+let catalogLoad = null;
+function loadCatalog() {
+  if (!catalogLoad) catalogLoad = readCatalog().finally(() => (catalogLoad = null));
+  return catalogLoad;
+}
+
+const tsPacks = {
+  getContentPacks: () => tsCall(() => TS.contentPacks.getContentPacks()),
+  getMoreInfo: (frags) => tsCall(() => TS.contentPacks.getMoreInfo(frags)),
+};
+
+async function readCatalog() {
   const chip = $('catalog-status');
   chip.textContent = 'loading assets…';
   chip.className = 'chip';
+  chip.title = 'Asset library';
+  let skipped = [];
   try {
     if (state.inTS) {
-      const frags = await tsCall(() => TS.contentPacks.getContentPacks());
-      const infos = await tsCall(() => TS.contentPacks.getMoreInfo(frags));
-      state.packInfos = infos;
-      state.catalog = TF.Catalog.fromContentPacks(infos);
+      let res;
+      try {
+        res = await TF.readContentPacks(tsPacks, { log: debug });
+      } catch (e) {
+        // Packs can still be loading right after start-up (mods add theirs late).
+        debug(`content packs: ${e.message}; retrying in 2 s`);
+        await new Promise((r) => setTimeout(r, 2000));
+        res = await TF.readContentPacks(tsPacks, { log: debug });
+      }
+      skipped = res.skipped;
+      state.packInfos = res.infos;
+      state.catalog = TF.Catalog.fromContentPacks(res.infos);
+      if (!state.catalog.size) throw new Error(`your ${res.infos.length} asset pack(s) contain no tiles or props`);
     } else {
       state.catalog = TF.demoCatalog();
     }
     const tiles = state.catalog.assets.filter((a) => a.kind === 'tile').length;
     chip.textContent = `${state.catalog.size.toLocaleString()} assets`;
-    chip.title = `${tiles} tiles, ${state.catalog.size - tiles} props from ${(state.catalog.meta.packs || []).length} pack(s)`;
+    chip.title = `${tiles} tiles, ${state.catalog.size - tiles} props from ${(state.catalog.meta.packs || []).length} pack(s)` +
+      (skipped.length ? `\nSkipped: ${skipped.map((s) => s.name).join(', ')}` : '');
     chip.className = state.catalog.meta.synthetic ? 'chip warn' : 'chip ok';
+    banner('catalog', null);
+    const note = $('kit-skipped');
+    note.textContent = skipped.length
+      ? `TaleSpire couldn't describe ${skipped.length} asset pack(s), so TaleForge isn't using them: ${skipped.map((s) => `${s.name} (${s.error})`).join('; ')}. These are usually packs added by mods.`
+      : '';
+    show(note, skipped.length > 0);
+    if (skipped.length) toast(`Loaded your assets, skipping ${skipped.length} pack(s) TaleSpire couldn't describe. See the Kit tab.`);
     fillAssetNames();
     renderKit();
   } catch (e) {
+    debug(`content packs: giving up: ${e.message}`);
     chip.textContent = 'assets unavailable';
-    chip.className = 'chip warn';
-    banner('catalog', `Could not read your asset packs: ${e.message}`);
+    chip.className = 'chip warn retry';
+    chip.title = 'Click to try again';
+    banner('catalog', `Could not read your asset packs: ${e.message}\nClick "assets unavailable" at the top right to try again.`);
   }
 }
 
@@ -239,7 +289,11 @@ function banner(key, text) {
   if (text) banners.set(key, text);
   else banners.delete(key);
   const b = $('banner');
-  b.textContent = [...banners.values()].join('\n');
+  b.replaceChildren(...[...banners.values()].map((t) => {
+    const d = document.createElement('div');
+    d.textContent = t;
+    return d;
+  }));
   show(b, banners.size > 0);
 }
 
@@ -960,6 +1014,10 @@ function wireUi() {
   if (wired) return;
   wired = true;
   for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => selectTab(b.dataset.tab));
+  const chip = $('catalog-status');
+  const retry = () => chip.classList.contains('retry') && loadCatalog();
+  chip.addEventListener('click', retry);
+  chip.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && retry());
   const ex = $('examples');
   for (const [label, text, size, style] of EXAMPLES) {
     const b = document.createElement('button');

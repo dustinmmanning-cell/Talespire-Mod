@@ -14,7 +14,7 @@
       <img src="icon64.png" alt="" width="28" height="28">
       <span class="name">TaleForge</span>
     </div>
-    <span id="catalog-status" class="chip" title="Asset library">loading assets…</span>
+    <span id="catalog-status" class="chip" title="Asset library" tabindex="0">loading assets…</span>
   </header>
   <div id="banner" class="banner hidden" role="status"></div>
 
@@ -164,6 +164,7 @@
     <div class="row">
       <label class="field grow"><span>Show roles for style</span><select id="kit-style"></select></label>
     </div>
+    <p class="hint hidden" id="kit-skipped"></p>
     <ul id="kit-list" class="kit-list"></ul>
     <datalist id="asset-names"></datalist>
     <div class="actions">

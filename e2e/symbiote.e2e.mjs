@@ -83,15 +83,25 @@ await page.route('https://api.openai.com/**', async (route) => {
   await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' }, body: responsesSse(plan) });
 });
 
-await page.addInitScript((packs) => {
+// A fake TaleSpire API. opts.badPack: a pack id (like a mod's pack) that makes
+// getMoreInfo fail whenever it is asked about. opts.packsFailUntilOk: the pack
+// list call rejects until the page sets window.__packsOk.
+function fakeTs({ packs, opts = {} }) {
   const store = { global: '', campaign: '' };
   window.__sent = [];
   window.__clip = [];
   window.TS = {
     debug: { log: async () => {} },
     contentPacks: {
-      getContentPacks: async () => packs.map((p) => ({ id: p.id, optionalName: p.optionalName })),
-      getMoreInfo: async () => packs,
+      getContentPacks: async () => {
+        if (opts.packsFailUntilOk && !window.__packsOk) throw { cause: 'internalError', message: 'not ready' };
+        return packs.map((p) => ({ id: p.id, optionalName: p.optionalName }));
+      },
+      getMoreInfo: async (frags) => {
+        window.__moreInfoCalls = (window.__moreInfoCalls || 0) + 1;
+        if (frags.some((f) => f.id === opts.badPack)) return { cause: 'internalError' };
+        return frags.map((f) => packs.find((p) => p.id === f.id));
+      },
       findBoardObjectInPacks: async (id) => {
         for (const p of packs) for (const k of ['tiles', 'props']) {
           const b = p[k].find((x) => x.id === id);
@@ -118,13 +128,14 @@ await page.addInitScript((packs) => {
       campaign: { getBlob: async () => store.campaign, setBlob: async (s) => { store.campaign = s; } },
     },
   };
-}, contentPacks());
+}
+await page.addInitScript(fakeTs, { packs: contentPacks() });
 
 await page.goto('file://' + join(root, 'symbiote/index.html'));
 await page.evaluate(() => window.handleStateChange({ kind: 'hasInitialized', payload: {} }));
-await page.waitForFunction(() => document.getElementById('catalog-status').textContent.includes('assets'));
+await page.waitForFunction(() => /assets$/.test(document.getElementById('catalog-status').textContent));
 const chip = await page.textContent('#catalog-status');
-assert.match(chip, /assets/);
+assert.match(chip, /^\d[\d,]* assets$/);
 await page.screenshot({ path: join(outDir, '1-create.png'), fullPage: true });
 
 // settings: save an API key
@@ -232,6 +243,38 @@ await page.click('[data-tab="settings"]');
 assert.match(await page.$eval('#model option', (o) => o.textContent), /^GPT-6 Astra · best · ~\$0\.69 your avg$/);
 await page.selectOption('#model', '__custom');
 assert.ok(await page.isVisible('#custom-model'));
+
+// A mod's asset pack that TaleSpire can't describe: the rest still load.
+const assetCount = Number(chip.replace(/\D/g, ''));
+const modPack = { id: 'mod-pack', optionalName: 'Some Mod Pack', tiles: [], props: [], creatures: [], music: [], iconsAtlases: [] };
+const page2 = await browser.newPage({ viewport: { width: 460, height: 900 } });
+page2.on('pageerror', (e) => errors.push(e.message));
+await page2.addInitScript(fakeTs, { packs: [...contentPacks(), modPack], opts: { badPack: 'mod-pack' } });
+await page2.goto('file://' + join(root, 'symbiote/index.html'));
+await page2.evaluate(() => window.handleStateChange({ kind: 'hasInitialized', payload: {} }));
+await page2.waitForFunction(() => /assets$/.test(document.getElementById('catalog-status').textContent));
+assert.equal(await page2.textContent('#catalog-status'), `${assetCount} assets`);
+assert.match(await page2.getAttribute('#catalog-status', 'title'), /Skipped: Some Mod Pack/);
+assert.ok(!(await page2.textContent('#banner')).includes('Could not read'));
+await page2.click('[data-tab="kit"]');
+assert.match(await page2.textContent('#kit-skipped'), /couldn't describe 1 asset pack\(s\).*Some Mod Pack \(TaleSpire: internalError\)/);
+assert.equal(await page2.evaluate(() => window.__moreInfoCalls), 3, 'all packs at once, then one by one');
+await page2.close();
+
+// Packs not readable at start-up: a clear error, then the badge retries.
+const page3 = await browser.newPage({ viewport: { width: 460, height: 900 } });
+page3.on('pageerror', (e) => errors.push(e.message));
+await page3.addInitScript(fakeTs, { packs: contentPacks(), opts: { packsFailUntilOk: true } });
+await page3.goto('file://' + join(root, 'symbiote/index.html'));
+await page3.evaluate(() => window.handleStateChange({ kind: 'hasInitialized', payload: {} }));
+await page3.waitForFunction(() => document.getElementById('catalog-status').textContent === 'assets unavailable', null, { timeout: 10000 });
+assert.match(await page3.textContent('#banner'), /Could not read your asset packs: TaleSpire: internalError\nClick "assets unavailable"/);
+await page3.screenshot({ path: join(outDir, '8-assets-unavailable.png') });
+await page3.evaluate(() => (window.__packsOk = true));
+await page3.click('#catalog-status');
+await page3.waitForFunction(() => /\d assets$/.test(document.getElementById('catalog-status').textContent));
+assert.ok(!(await page3.textContent('#banner')).includes('Could not read'), 'the error clears after a successful retry');
+await page3.close();
 
 assert.deepEqual(errors, [], `page errors: ${errors.join('\n')}`);
 await browser.close();

@@ -28,3 +28,7 @@ TaleForge never hardcodes asset ids: it looks up walls, floors and furniture in 
 ## Calibrate
 
 Furniture orientation is not documented by the game. Use **Settings > Probes** to place small test builds and pick the facing that looks right.
+
+## Troubleshooting
+
+- **The badge at the top right says "assets unavailable".** The banner under it says why. Click the badge to try again. Asset packs that TaleSpire can't describe (usually ones added by mods) are skipped and listed on the **Kit** tab, so everything else still loads.

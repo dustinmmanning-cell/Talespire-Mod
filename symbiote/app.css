@@ -41,7 +41,8 @@ code { background: var(--bg3); padding: 0 4px; border-radius: 3px; }
 .chip { font-size: 12px; color: var(--fg2); background: var(--bg2); border: 1px solid var(--a11y-border); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
 .chip.ok { color: var(--fg); }
 .chip.warn { color: var(--danger); }
-.banner { background: var(--accent-bg); border: 1px solid var(--accent); padding: 6px 10px; border-radius: var(--radius); margin-bottom: 8px; font-size: 13px; }
+.banner { background: var(--accent-bg); border: 1px solid var(--accent); padding: 6px 10px; border-radius: var(--radius); margin-bottom: 8px; font-size: 13px; white-space: pre-line; }
+.banner > div + div { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--accent); }
 
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--bg3); margin: 4px 0 12px; overflow-x: auto; }
 .tabs button { background: none; border: none; color: var(--fg2); padding: 8px 10px; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
@@ -139,3 +140,4 @@ h3.first { margin-top: 4px; }
 .wide { flex-basis: 100%; }
 #model-line { margin: -4px 0 6px; }
 #r-ai { margin-top: -6px; }
+.chip.retry { cursor: pointer; text-decoration: underline dotted; }

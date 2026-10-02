@@ -415,6 +415,66 @@
       return { assets: out, boundsScale: scale };
     }
 
+    // Reads every loaded content pack through the Symbiote API:
+    //   api = { getContentPacks(), getMoreInfo(fragments) }, each throwing on failure.
+    // Asking for all packs at once is fastest, but one pack TaleSpire can't
+    // describe (for example one added by a BepInEx mod) fails the whole call. Then
+    // we ask pack by pack and skip the ones that fail.
+    // Returns { infos, skipped: [{ name, error }] }.
+    async function  readContentPacks(api, { log = () => {}, wait = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+      const frags = await api.getContentPacks();
+      if (!Array.isArray(frags)) throw new Error(`TaleSpire sent an unexpected pack list (${describeValue(frags)})`);
+      if (!frags.length) throw new Error('TaleSpire reported no loaded asset packs');
+      try {
+        const infos = packInfoList(await api.getMoreInfo(frags));
+        if (infos.length) return { infos, skipped: [] };
+        log('content packs: details for all packs came back empty; asking one pack at a time');
+      } catch (e) {
+        log(`content packs: details for all ${frags.length} packs failed (${e.message}); asking one pack at a time`);
+      }
+      const infos = [];
+      const skipped = [];
+      for (const f of frags) {
+        const name = (f && (f.optionalName || f.id)) || String(f);
+        for (let attempt = 0; ; attempt++) {
+          try {
+            const got = packInfoList(await api.getMoreInfo([f]));
+            if (got.length) infos.push(...got);
+            else skipped.push({ name, error: 'no details' });
+            break;
+          } catch (e) {
+            if (e && e.code === 'rateLimited' && attempt < 2) {
+              await wait(1000 * (attempt + 1));
+              continue;
+            }
+            skipped.push({ name, error: (e && e.message) || String(e) });
+            log(`content packs: skipped "${name}": ${(e && e.message) || e}`);
+            break;
+          }
+        }
+      }
+      if (!infos.length) {
+        throw new Error(`TaleSpire could not describe any of your ${frags.length} asset pack(s). First error: ${skipped[0].error}`);
+      }
+      return { infos, skipped };
+    }
+
+    function packInfoList(v) {
+      if (Array.isArray(v)) return v.filter((p) => p && typeof p === 'object');
+      if (v && typeof v === 'object' && (v.tiles || v.props)) return [v];
+      throw new Error(`TaleSpire sent unexpected pack details (${describeValue(v)})`);
+    }
+
+    function describeValue(v) {
+      if (v === null || v === undefined) return String(v);
+      if (typeof v !== 'object') return `${typeof v} ${String(v).slice(0, 60)}`;
+      try {
+        return JSON.stringify(v).slice(0, 120);
+      } catch {
+        return Object.prototype.toString.call(v);
+      }
+    }
+
     // ---- the catalog -----------------------------------------------------------
 
     class Catalog {
@@ -603,7 +663,7 @@
       return true;
     }
 
-    return { CATALOG_FORMAT, CATALOG_VERSION, normalizeName, makeAsset, assetsFromIndexJson, inferBoundsScale, assetsFromContentPacks, Catalog, matchesQuery };
+    return { CATALOG_FORMAT, CATALOG_VERSION, normalizeName, makeAsset, assetsFromIndexJson, inferBoundsScale, assetsFromContentPacks, readContentPacks, Catalog, matchesQuery };
   })();
   // ---- geometry.js ----
   __m['geometry'] = (function () {
@@ -5038,7 +5098,7 @@
     // window.TaleForge.
 
     const { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes } = __m['slab'];
-    const { Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, CATALOG_FORMAT } = __m['catalog'];
+    const { Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, CATALOG_FORMAT } = __m['catalog'];
     const { placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER } = __m['geometry'];
     const { Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport } = __m['kit'];
     const { PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS } = __m['plan'];
@@ -5056,7 +5116,7 @@
     const { decodePng, encodePng, sniffImageType } = __m['png'];
     const { demoCatalog } = __m['demo-catalog'];
     const { probePlan, facingProbe } = __m['probe'];
-    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
+    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
   })();
   global.TaleForge = __m['index'];
 })(typeof window !== 'undefined' ? window : globalThis);

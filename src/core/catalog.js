@@ -108,6 +108,66 @@ export function assetsFromContentPacks(packInfos) {
   return { assets: out, boundsScale: scale };
 }
 
+// Reads every loaded content pack through the Symbiote API:
+//   api = { getContentPacks(), getMoreInfo(fragments) }, each throwing on failure.
+// Asking for all packs at once is fastest, but one pack TaleSpire can't
+// describe (for example one added by a BepInEx mod) fails the whole call. Then
+// we ask pack by pack and skip the ones that fail.
+// Returns { infos, skipped: [{ name, error }] }.
+export async function readContentPacks(api, { log = () => {}, wait = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const frags = await api.getContentPacks();
+  if (!Array.isArray(frags)) throw new Error(`TaleSpire sent an unexpected pack list (${describeValue(frags)})`);
+  if (!frags.length) throw new Error('TaleSpire reported no loaded asset packs');
+  try {
+    const infos = packInfoList(await api.getMoreInfo(frags));
+    if (infos.length) return { infos, skipped: [] };
+    log('content packs: details for all packs came back empty; asking one pack at a time');
+  } catch (e) {
+    log(`content packs: details for all ${frags.length} packs failed (${e.message}); asking one pack at a time`);
+  }
+  const infos = [];
+  const skipped = [];
+  for (const f of frags) {
+    const name = (f && (f.optionalName || f.id)) || String(f);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const got = packInfoList(await api.getMoreInfo([f]));
+        if (got.length) infos.push(...got);
+        else skipped.push({ name, error: 'no details' });
+        break;
+      } catch (e) {
+        if (e && e.code === 'rateLimited' && attempt < 2) {
+          await wait(1000 * (attempt + 1));
+          continue;
+        }
+        skipped.push({ name, error: (e && e.message) || String(e) });
+        log(`content packs: skipped "${name}": ${(e && e.message) || e}`);
+        break;
+      }
+    }
+  }
+  if (!infos.length) {
+    throw new Error(`TaleSpire could not describe any of your ${frags.length} asset pack(s). First error: ${skipped[0].error}`);
+  }
+  return { infos, skipped };
+}
+
+function packInfoList(v) {
+  if (Array.isArray(v)) return v.filter((p) => p && typeof p === 'object');
+  if (v && typeof v === 'object' && (v.tiles || v.props)) return [v];
+  throw new Error(`TaleSpire sent unexpected pack details (${describeValue(v)})`);
+}
+
+function describeValue(v) {
+  if (v === null || v === undefined) return String(v);
+  if (typeof v !== 'object') return `${typeof v} ${String(v).slice(0, 60)}`;
+  try {
+    return JSON.stringify(v).slice(0, 120);
+  } catch {
+    return Object.prototype.toString.call(v);
+  }
+}
+
 // ---- the catalog -----------------------------------------------------------
 
 export class Catalog {
