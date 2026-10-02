@@ -134,3 +134,8 @@ summary:hover { color: var(--fg); }
 .clusters select { padding: 3px 5px; font-size: 12px; }
 
 .toast { position: fixed; left: 12px; right: 12px; bottom: 12px; background: var(--bg3); color: var(--fg); border: 1px solid var(--accent); padding: 8px 12px; border-radius: var(--radius); font-size: 13px; z-index: 20; }
+
+h3.first { margin-top: 4px; }
+.wide { flex-basis: 100%; }
+#model-line { margin: -4px 0 6px; }
+#r-ai { margin-top: -6px; }

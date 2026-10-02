@@ -3393,36 +3393,25 @@
 
     return { markerTile, buildSlabs, PASTE_HELP, textReport };
   })();
-  // ---- claude.js ----
-  __m['claude'] = (function () {
-    // Minimal Claude Messages API client over fetch + Server-Sent Events.
-    //
-    // Why raw HTTP and not @anthropic-ai/sdk: the same file runs inside a TaleSpire
-    // Symbiote, which is a Chromium web view loading plain local scripts -- no npm,
-    // no bundler, no module resolution. fetch + ReadableStream work identically
-    // there and in Node >= 18.
-    //
-    // Requests stream (plans can be tens of thousands of tokens) and use
-    // structured outputs (output_config.format) so the response is always JSON
-    // matching the schema. Server-side fallbacks are on by default: if the model
-    // declines a request, the API retries it on its recommended fallback model.
+  // ---- http.js ----
+  __m['http'] = (function () {
+    // Provider-neutral plumbing shared by the AI clients: an error type, a
+    // Server-Sent Events reader, and small helpers. fetch + ReadableStream only,
+    // so it runs in Node >= 18 and in a Symbiote's Chromium alike.
 
-    const DEFAULT_MODEL = 'claude-opus-5-5';
-    const API_VERSION = '2023-06-01';
-    const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
-
-    class ClaudeError extends Error {
-      constructor(message, { status = 0, type = 'error', retryable = false, details = null } = {}) {
+    class ApiError extends Error {
+      constructor(message, { status = 0, type = 'error', retryable = false, details = null, provider = null } = {}) {
         super(message);
-        this.name = 'ClaudeError';
+        this.name = 'ApiError';
         this.status = status;
         this.type = type;
         this.retryable = retryable;
         this.details = details;
+        this.provider = provider;
       }
     }
 
-    function isBrowser() {
+    function  isBrowser() {
       return typeof window !== 'undefined' && typeof document !== 'undefined';
     }
 
@@ -3451,6 +3440,42 @@
         }
       }
     }
+
+    // Structured outputs guarantee JSON; this is only a belt-and-braces parse.
+    function  parseJsonText(text) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+        throw new ApiError('The model did not return JSON', { type: 'parse_error' });
+      }
+    }
+
+    return { ApiError, isBrowser, sleep, readSse, parseJsonText };
+  })();
+  // ---- claude.js ----
+  __m['claude'] = (function () {
+    // Minimal Claude Messages API client over fetch + Server-Sent Events.
+    //
+    // Why raw HTTP and not @anthropic-ai/sdk: the same file runs inside a TaleSpire
+    // Symbiote, which is a Chromium web view loading plain local scripts -- no npm,
+    // no bundler, no module resolution. fetch + ReadableStream work identically
+    // there and in Node >= 18.
+    //
+    // Requests stream (plans can be tens of thousands of tokens) and use
+    // structured outputs (output_config.format) so the response is always JSON
+    // matching the schema. Server-side fallbacks are on by default: if the model
+    // declines a request, the API retries it on its recommended fallback model.
+
+    const { ApiError, isBrowser, sleep, readSse } = __m['http'];
+    const DEFAULT_MODEL = 'claude-opus-5-5';
+    const API_VERSION = '2023-06-01';
+    const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+
+    // Kept as a name for callers that predate OpenAI support; same class as ApiError.
+    const ClaudeError = ApiError;
 
     // Collect a streamed message. Returns { text, stopReason, stopDetails, model, usage }.
     // onProgress({ phase, outputTokens, textChars }) is called as tokens arrive.
@@ -3585,7 +3610,7 @@
             await sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 2000 * attempt);
             continue;
           }
-          throw new ClaudeError(friendlyError(res.status, type, message), { status: res.status, type, retryable });
+          throw new ClaudeError(friendlyError(res.status, type, message), { status: res.status, type, retryable, provider: 'anthropic' });
         }
         try {
           const out = await collectStream(res.body, onProgress);
@@ -3616,19 +3641,378 @@
       return `Claude API error (${type}): ${message}`;
     }
 
-    // Structured outputs guarantee JSON; this is only a belt-and-braces parse.
-    function  parseJsonText(text) {
-      try {
-        return JSON.parse(text);
-      } catch {
-        const start = text.indexOf('{');
-        const end = text.lastIndexOf('}');
-        if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
-        throw new ClaudeError('The model did not return JSON', { type: 'parse_error' });
+    return { DEFAULT_MODEL, API_VERSION, FALLBACK_BETA, ClaudeError, collectStream, callClaude };
+  })();
+  // ---- openai.js ----
+  __m['openai'] = (function () {
+    // Minimal OpenAI Responses API client over fetch + Server-Sent Events.
+    //
+    // Same contract as callClaude: send a system prompt, user content (text and
+    // images) and a JSON schema; get back the model's JSON text, the model that
+    // answered, and its usage. Raw HTTP for the same reason as the Claude client:
+    // it must run inside a Symbiote with no npm or bundler.
+    //
+    // Request shape (from the official openai-node SDK types):
+    //   POST /v1/responses
+    //   { model, instructions, input: [{ role, content: [input_text | input_image] }],
+    //     text: { format: { type: 'json_schema', name, strict: true, schema } },
+    //     reasoning: { effort }, max_output_tokens, stream: true, store: false }
+    // Streamed events used: response.created, response.output_text.delta,
+    // response.reasoning_*.delta, response.refusal.delta, response.completed,
+    // response.incomplete, response.failed, error.
+
+    const { ApiError, sleep, readSse } = __m['http'];
+    const OPENAI_DEFAULT_MODEL = 'gpt-6-astra';
+
+    // If a model rejects an effort level, step down one and retry once.
+    const LOWER_EFFORT = { max: 'xhigh', xhigh: 'high', high: 'medium', medium: 'low', low: null };
+
+    // Anthropic-style content blocks (what the planner builds) -> Responses input.
+    function  toResponsesInput(messages) {
+      return messages.map((m) => ({
+        role: m.role,
+        content: (typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : m.content).map((b) =>
+          b.type === 'image'
+            ? { type: 'input_image', image_url: `data:${b.source.media_type};base64,${b.source.data}`, detail: 'high' }
+            : { type: 'input_text', text: b.text },
+        ),
+      }));
+    }
+
+    // Collect a streamed response. Returns { text, refusal, model, usage, status, incompleteReason, error }.
+    async function  collectOpenAIStream(body, onProgress) {
+      let text = '';
+      let refusal = '';
+      let model = null;
+      let usage = {};
+      let status = null;
+      let incompleteReason = null;
+      let error = null;
+      let lastTick = 0;
+      const tick = (ev, every = 250) => {
+        const now = Date.now();
+        if (onProgress && now - lastTick > every) {
+          lastTick = now;
+          onProgress(ev);
+        }
+      };
+      for await (const { data } of readSse(body)) {
+        if (data === '[DONE]') break;
+        let msg;
+        try {
+          msg = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        switch (msg.type) {
+          case 'response.created':
+          case 'response.in_progress':
+            if (msg.response && msg.response.model) model = msg.response.model;
+            break;
+          case 'response.output_text.delta':
+            text += msg.delta || '';
+            tick({ phase: 'writing', textChars: text.length });
+            break;
+          case 'response.reasoning_text.delta':
+          case 'response.reasoning_summary_text.delta':
+            tick({ phase: 'thinking' }, 500);
+            break;
+          case 'response.output_item.added':
+            if (msg.item && msg.item.type === 'reasoning') tick({ phase: 'thinking' }, 0);
+            break;
+          case 'response.refusal.delta':
+            refusal += msg.delta || '';
+            break;
+          case 'response.completed':
+          case 'response.incomplete':
+          case 'response.failed': {
+            const r = msg.response || {};
+            model = r.model || model;
+            usage = r.usage || usage;
+            status = r.status || msg.type.slice('response.'.length);
+            if (r.incomplete_details) incompleteReason = r.incomplete_details.reason || null;
+            if (r.error) error = r.error;
+            break;
+          }
+          case 'error':
+            error = { code: msg.code, message: msg.message, param: msg.param };
+            break;
+          default:
+            break;
+        }
+      }
+      return { text, refusal, model, usage, status, incompleteReason, error };
+    }
+
+    //   apiKey, baseUrl, model, system, messages, schema, schemaName, effort,
+    //   maxTokens, onProgress, signal, fetchImpl, retries
+    async function  callOpenAI({
+      apiKey, baseUrl = 'https://api.openai.com', model = OPENAI_DEFAULT_MODEL, system, messages, schema, schemaName = 'build_plan',
+      effort = 'high', maxTokens = 64000, onProgress, signal, fetchImpl, retries = 2,
+    }) {
+      if (!apiKey) throw new ApiError('No OpenAI API key configured', { type: 'authentication_error', provider: 'openai' });
+      const doFetch = fetchImpl || globalThis.fetch;
+      const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` };
+      const body = {
+        model,
+        instructions: system,
+        input: toResponsesInput(messages),
+        stream: true,
+        // Don't keep TaleForge prompts on OpenAI's servers for later retrieval.
+        store: false,
+        max_output_tokens: maxTokens,
+        ...(schema ? { text: { format: { type: 'json_schema', name: schemaName, strict: true, schema } } } : {}),
+        ...(effort ? { reasoning: { effort } } : {}),
+      };
+
+      let attempt = 0;
+      let effortRetried = false;
+      for (;;) {
+        attempt++;
+        if (onProgress) onProgress({ phase: attempt === 1 ? 'connecting' : 'retrying', attempt });
+        let res;
+        try {
+          res = await doFetch(`${baseUrl.replace(/\/$/, '')}/v1/responses`, { method: 'POST', headers, body: JSON.stringify(body), signal });
+        } catch (e) {
+          if (signal && signal.aborted) throw new ApiError('Cancelled', { type: 'cancelled', provider: 'openai' });
+          if (attempt <= retries) {
+            await sleep(1500 * attempt);
+            continue;
+          }
+          throw new ApiError(`Network error talking to the OpenAI API: ${e.message}`, { type: 'network_error', provider: 'openai' });
+        }
+        if (!res.ok) {
+          let err = {};
+          try {
+            err = (await res.json()).error || {};
+          } catch {
+            // not JSON
+          }
+          const code = err.code || err.type || `http_${res.status}`;
+          const message = err.message || `HTTP ${res.status}`;
+          // A model that doesn't take this effort level: step down once.
+          if (res.status === 400 && !effortRetried && body.reasoning && (err.param === 'reasoning.effort' || /reasoning\.effort/.test(message))) {
+            const lower = LOWER_EFFORT[body.reasoning.effort];
+            effortRetried = true;
+            if (lower) body.reasoning = { effort: lower };
+            else delete body.reasoning;
+            attempt--;
+            continue;
+          }
+          const outOfBudget = code === 'insufficient_quota';
+          const retryable = !outOfBudget && (res.status === 429 || res.status >= 500);
+          if (retryable && attempt <= retries) {
+            const after = Number(res.headers.get && res.headers.get('retry-after'));
+            await sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 2000 * attempt);
+            continue;
+          }
+          throw new ApiError(friendlyOpenAIError(res.status, code, message), { status: res.status, type: code, retryable, provider: 'openai' });
+        }
+        const out = await collectOpenAIStream(res.body, onProgress);
+        if (out.error) {
+          const retryable = ['server_error', 'rate_limit_exceeded'].includes(out.error.code);
+          if (retryable && attempt <= retries) {
+            await sleep(2000 * attempt);
+            continue;
+          }
+          throw new ApiError(`OpenAI API error (${out.error.code || 'error'}): ${out.error.message || 'the response failed'}`, { type: out.error.code || 'error', provider: 'openai' });
+        }
+        if (out.refusal && !out.text) {
+          throw new ApiError(`The model declined this request: ${out.refusal}`, { type: 'refusal', provider: 'openai' });
+        }
+        if (out.incompleteReason === 'max_output_tokens') {
+          throw new ApiError('The plan was too long to finish. Ask for a smaller area or fewer details.', { type: 'max_tokens', provider: 'openai' });
+        }
+        if (out.incompleteReason === 'content_filter') {
+          throw new ApiError('The model declined this request. Try rewording the description.', { type: 'refusal', provider: 'openai' });
+        }
+        if (!out.text) throw new ApiError('The model returned no plan text.', { type: 'empty_response', provider: 'openai' });
+        return { text: out.text, stopReason: 'end_turn', model: out.model || model, usage: out.usage };
       }
     }
 
-    return { DEFAULT_MODEL, API_VERSION, FALLBACK_BETA, ClaudeError, readSse, collectStream, callClaude, parseJsonText };
+    function friendlyOpenAIError(status, code, message) {
+      if (code === 'insufficient_quota') return 'Your OpenAI account is out of credit or over its budget limit. Check billing at platform.openai.com.';
+      if (status === 401) return 'The OpenAI API key was rejected. Check it in Settings.';
+      if (status === 403) return `Your OpenAI key is not allowed to do this: ${message}`;
+      if (status === 404) return `This model isn't available to your OpenAI key: ${message}`;
+      if (status === 413) return 'The request is too large (image too big?).';
+      if (status === 429) return 'Rate limited by the OpenAI API. Wait a minute and try again.';
+      if (status >= 500) return 'The OpenAI API had a server error. Try again shortly.';
+      return `OpenAI API error (${code}): ${message}`;
+    }
+
+    return { OPENAI_DEFAULT_MODEL, toResponsesInput, collectOpenAIStream, callOpenAI };
+  })();
+  // ---- providers.js ----
+  __m['providers'] = (function () {
+    // AI providers and models TaleForge can use, with prices for cost estimates.
+    //
+    // Prices are US dollars per million tokens on each provider's standard tier,
+    // as of PRICES_AS_OF. Sources: Anthropic's published API pricing, and for
+    // OpenAI the model list in the official openai-node SDK cross-checked against
+    // LiteLLM's model price table. Prices change; the real cost of every build is
+    // computed from the usage the API reports, and the Symbiote shows that too.
+
+    const PRICES_AS_OF = '2026-10-02';
+
+    const PROVIDERS = {
+      anthropic: {
+        id: 'anthropic',
+        label: 'Anthropic (Claude)',
+        keyHint: 'sk-ant-…',
+        keySite: 'console.anthropic.com',
+        envKey: 'ANTHROPIC_API_KEY',
+        baseUrl: 'https://api.anthropic.com',
+        defaultModel: 'claude-opus-5-5',
+        models: [
+          { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'best', price: { input: 4, cachedInput: 0.2, output: 20 } },
+          { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'faster', price: { input: 2, cachedInput: 0.2, output: 10 } },
+          { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', note: 'most capable', price: { input: 10, cachedInput: 0.25, output: 50 } },
+          { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', note: 'cheapest', price: { input: 1, cachedInput: 0.1, output: 5 }, noReasoning: true },
+        ],
+      },
+      openai: {
+        id: 'openai',
+        label: 'OpenAI (GPT)',
+        keyHint: 'sk-…',
+        keySite: 'platform.openai.com',
+        envKey: 'OPENAI_API_KEY',
+        baseUrl: 'https://api.openai.com',
+        defaultModel: 'gpt-6-astra',
+        models: [
+          { id: 'gpt-6-astra', label: 'GPT-6 Astra', note: 'best', price: { input: 10, cachedInput: 1, output: 50 } },
+          { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', note: 'balanced', price: { input: 2, cachedInput: 0.1, output: 10 } },
+          { id: 'gpt-6-luna', label: 'GPT-6 Luna', note: 'cheapest', price: { input: 0.1, cachedInput: 0.01, output: 0.5 } },
+        ],
+      },
+    };
+
+    const PROVIDER_IDS = Object.keys(PROVIDERS);
+
+    function  providerOf(modelId) {
+      if (/^claude-/i.test(modelId || '')) return 'anthropic';
+      if (/^(gpt-|o\d|chatgpt-)/i.test(modelId || '')) return 'openai';
+      return null;
+    }
+
+    // Exact id, or a dated snapshot of a listed model ("gpt-6-astra-2026-09-03").
+    function  findModel(modelId) {
+      for (const id of [modelId, baseModelId(modelId)]) {
+        for (const p of Object.values(PROVIDERS)) {
+          const m = p.models.find((x) => x.id === id);
+          if (m) return { ...m, provider: p.id };
+        }
+      }
+      return null;
+    }
+
+    // Usage as each API reports it -> one shape:
+    //   { inputTokens (uncached), cachedInputTokens, cacheWriteTokens, outputTokens, reasoningTokens }
+    // Anthropic reports cache reads/writes separately from input_tokens; OpenAI
+    // includes cached tokens in input_tokens and reasoning tokens in output_tokens.
+    function  normalizeUsage(provider, raw = {}) {
+      if (provider === 'openai') {
+        const inDet = raw.input_tokens_details || {};
+        const outDet = raw.output_tokens_details || {};
+        const cached = inDet.cached_tokens || 0;
+        const writes = inDet.cache_write_tokens || 0;
+        return {
+          inputTokens: Math.max(0, (raw.input_tokens || 0) - cached - writes),
+          cachedInputTokens: cached,
+          cacheWriteTokens: writes,
+          outputTokens: raw.output_tokens || 0,
+          reasoningTokens: outDet.reasoning_tokens || 0,
+        };
+      }
+      return {
+        inputTokens: raw.input_tokens || 0,
+        cachedInputTokens: raw.cache_read_input_tokens || 0,
+        cacheWriteTokens: raw.cache_creation_input_tokens || 0,
+        outputTokens: raw.output_tokens || 0,
+        reasoningTokens: 0,
+      };
+    }
+
+    // Dollars for a normalized usage on a model, or null when the price is unknown.
+    function  costOf(modelId, usage) {
+      const m = findModel(modelId);
+      if (!m || !usage) return null;
+      const p = m.price;
+      return (
+        (usage.inputTokens * p.input +
+          usage.cachedInputTokens * p.cachedInput +
+          usage.cacheWriteTokens * p.input * 1.25 +
+          usage.outputTokens * p.output) /
+        1e6
+      );
+    }
+
+    // "gpt-6-astra-2026-09-03" -> "gpt-6-astra" for dated snapshots.
+    function baseModelId(id) {
+      return String(id || '').replace(/-\d{4}-\d{2}-\d{2}$/, '');
+    }
+
+    // What a typical single-building generation uses at 'high' effort: the system
+    // prompt with the GM's prop list in, the plan (plus reasoning) out. A guess,
+    // replaced by the user's own measured average once they have built with a model.
+    const TYPICAL_BUILD = { inputTokens: 10000, outputTokens: 12000 };
+    const EFFORT_SCALE = { low: 0.45, medium: 0.7, high: 1, xhigh: 1.5, max: 2 };
+
+    function  estimateBuildCost(modelId, { effort = 'high' } = {}) {
+      const m = findModel(modelId);
+      if (!m) return null;
+      const scale = m.noReasoning ? 0.6 : EFFORT_SCALE[effort] || 1;
+      return costOf(modelId, {
+        inputTokens: TYPICAL_BUILD.inputTokens,
+        cachedInputTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: Math.round(TYPICAL_BUILD.outputTokens * scale),
+        reasoningTokens: 0,
+      });
+    }
+
+    function  formatCost(dollars) {
+      if (dollars === null || dollars === undefined || !Number.isFinite(dollars)) return '?';
+      if (dollars < 0.01) return '<$0.01';
+      if (dollars < 10) return `$${dollars.toFixed(2)}`;
+      return `$${dollars.toFixed(0)}`;
+    }
+
+    // Label for a model picker, e.g. "GPT-6 Astra · best · ~$0.70 per build".
+    // stats: { n, total } measured from the user's own builds, if any.
+    function  modelOptionLabel(model, { effort = 'high', stats = null } = {}) {
+      const est = stats && stats.n > 0 ? stats.total / stats.n : estimateBuildCost(model.id, { effort });
+      const basis = stats && stats.n > 0 ? 'your avg' : 'per build';
+      return `${model.label} · ${model.note} · ~${formatCost(est)} ${basis}`;
+    }
+
+    return { PRICES_AS_OF, PROVIDERS, PROVIDER_IDS, providerOf, findModel, normalizeUsage, costOf, TYPICAL_BUILD, estimateBuildCost, formatCost, modelOptionLabel };
+  })();
+  // ---- ai.js ----
+  __m['ai'] = (function () {
+    // One entry point for every AI call, whichever provider the user picked.
+
+    const { callClaude } = __m['claude'];
+    const { callOpenAI } = __m['openai'];
+    const { ApiError } = __m['http'];
+    const { PROVIDERS, providerOf, normalizeUsage, costOf } = __m['providers'];
+    // opts: { provider?, model?, apiKey, baseUrl?, system, messages, schema,
+    //         schemaName?, effort?, onProgress?, signal?, fetchImpl?, fallbacks? }
+    // -> { text, provider, model, usage (normalized), usageRaw, cost (USD or null) }
+    async function  callModel(opts) {
+      const provider = opts.provider || providerOf(opts.model) || 'anthropic';
+      const info = PROVIDERS[provider];
+      if (!info) throw new ApiError(`Unknown AI provider "${provider}"`, { type: 'config_error' });
+      const model = opts.model || info.defaultModel;
+      const call = provider === 'openai' ? callOpenAI : callClaude;
+      const out = await call({ ...opts, model, baseUrl: opts.baseUrl || info.baseUrl });
+      const served = out.model || model;
+      const usage = normalizeUsage(provider, out.usage);
+      return { text: out.text, provider, model: served, requestedModel: model, usage, usageRaw: out.usage, cost: costOf(served, usage) };
+    }
+
+    return { callModel };
   })();
   // ---- trace.js ----
   __m['trace'] = (function () {
@@ -4006,7 +4390,8 @@
   __m['planner'] = (function () {
     // Prompting: description (+ optional reference image) -> build plan.
 
-    const { callClaude, parseJsonText, DEFAULT_MODEL } = __m['claude'];
+    const { callModel } = __m['ai'];
+    const { parseJsonText } = __m['http'];
     const { PLAN_SCHEMA, normalizePlan, MAX_MAP_TILES } = __m['plan'];
     const { STYLES, SURFACES, WALL_MATERIALS } = __m['kit'];
     const { TRACE_MEANINGS } = __m['trace'];
@@ -4102,17 +4487,20 @@
     }
 
     // The one call most callers need.
-    //   opts: { apiKey, baseUrl, model, effort, prompt, size, style, image, imageMode,
-    //           previousPlan, catalog, onProgress, signal, fetchImpl }
-    // -> { plan, warnings, usage, model, raw }
+    //   opts: { provider, apiKey, baseUrl, model, effort, prompt, size, style, image,
+    //           imageMode, previousPlan, catalog, onProgress, signal, fetchImpl }
+    // provider is 'anthropic' (default) or 'openai'; model defaults per provider.
+    // -> { plan, warnings, provider, model, usage (normalized), cost (USD|null), raw }
     async function  generatePlan(opts) {
       const system = systemPrompt(opts.catalog);
       const messages = [{ role: 'user', content: buildUserContent(opts) }];
-      const out = await callClaude({
+      const out = await callModel({
+        provider: opts.provider,
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
-        model: opts.model || DEFAULT_MODEL,
+        model: opts.model,
         effort: opts.effort || 'high',
+        schemaName: 'build_plan',
         system,
         messages,
         schema: PLAN_SCHEMA,
@@ -4123,7 +4511,7 @@
       });
       const raw = parseJsonText(out.text);
       const { plan, warnings } = normalizePlan(raw);
-      return { plan, warnings, usage: out.usage, model: out.model, raw };
+      return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, raw };
     }
 
     // ---- trace mode: label colour clusters of a traced map image ----------------
@@ -4179,17 +4567,19 @@
       ].join('\n');
     }
 
-    // -> { labels, extras: {title, summary, notes, style, props}, grid: [cols, rows]|null, usage, model }
+    // -> { labels, extras: {title, summary, notes, style, props}, grid: [cols, rows]|null, provider, model, usage, cost }
     async function  labelTrace(opts) {
       const { trace, image, prompt } = opts;
       const content = [];
       if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } });
       content.push({ type: 'text', text: traceUserText(trace, prompt) });
-      const out = await callClaude({
+      const out = await callModel({
+        provider: opts.provider,
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
-        model: opts.model || DEFAULT_MODEL,
+        model: opts.model,
         effort: opts.effort || 'medium',
+        schemaName: 'trace_labels',
         system: systemPrompt(opts.catalog),
         messages: [{ role: 'user', content }],
         schema: traceSchema(),
@@ -4208,12 +4598,14 @@
         labels,
         extras: { title: raw.title, summary: raw.summary, notes: raw.notes, style: raw.style, props: Array.isArray(raw.props) ? raw.props : [] },
         grid: cols >= 4 && rows >= 4 && cols <= MAX_MAP_TILES && rows <= MAX_MAP_TILES ? [cols, rows] : null,
-        usage: out.usage,
+        provider: out.provider,
         model: out.model,
+        usage: out.usage,
+        cost: out.cost,
       };
     }
 
-    // After re-tracing at the grid size Claude counted, carry labels across by
+    // After re-tracing at the grid size the model counted, carry labels across by
     // nearest cluster colour and rescale prop positions.
     function  remapTraceLabels(oldTrace, newTrace, labels, props = []) {
       const byOld = new Map(labels.map((l) => [l.index, l]));
@@ -4654,13 +5046,17 @@
     const { chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET } = __m['chunk'];
     const { renderPreviewSvg, MATERIAL_COLORS } = __m['preview'];
     const { buildSlabs, textReport, markerTile, PASTE_HELP } = __m['build'];
-    const { callClaude, collectStream, readSse, parseJsonText, ClaudeError, DEFAULT_MODEL } = __m['claude'];
+    const { callClaude, collectStream, ClaudeError, DEFAULT_MODEL } = __m['claude'];
+    const { ApiError, readSse, parseJsonText } = __m['http'];
+    const { callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL } = __m['openai'];
+    const { callModel } = __m['ai'];
+    const { PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel } = __m['providers'];
     const { generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema } = __m['planner'];
     const { traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS } = __m['trace'];
     const { decodePng, encodePng, sniffImageType } = __m['png'];
     const { demoCatalog } = __m['demo-catalog'];
     const { probePlan, facingProbe } = __m['probe'];
-    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, readSse, parseJsonText, ClaudeError, DEFAULT_MODEL, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
+    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
   })();
   global.TaleForge = __m['index'];
 })(typeof window !== 'undefined' ? window : globalThis);

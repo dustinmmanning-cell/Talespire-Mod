@@ -10,50 +10,14 @@
 // matching the schema. Server-side fallbacks are on by default: if the model
 // declines a request, the API retries it on its recommended fallback model.
 
+import { ApiError, isBrowser, sleep, readSse } from './http.js';
+
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 export const API_VERSION = '2023-06-01';
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
-export class ClaudeError extends Error {
-  constructor(message, { status = 0, type = 'error', retryable = false, details = null } = {}) {
-    super(message);
-    this.name = 'ClaudeError';
-    this.status = status;
-    this.type = type;
-    this.retryable = retryable;
-    this.details = details;
-  }
-}
-
-function isBrowser() {
-  return typeof window !== 'undefined' && typeof document !== 'undefined';
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// Parse an SSE byte stream into { event, data } objects.
-export async function* readSse(body) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let sep;
-    while ((sep = buf.search(/\r?\n\r?\n/)) >= 0) {
-      const raw = buf.slice(0, sep);
-      buf = buf.slice(sep).replace(/^\r?\n\r?\n/, '');
-      let event = 'message';
-      const data = [];
-      for (const line of raw.split(/\r?\n/)) {
-        if (line.startsWith('event:')) event = line.slice(6).trim();
-        else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
-      }
-      if (data.length) yield { event, data: data.join('\n') };
-    }
-  }
-}
+// Kept as a name for callers that predate OpenAI support; same class as ApiError.
+export const ClaudeError = ApiError;
 
 // Collect a streamed message. Returns { text, stopReason, stopDetails, model, usage }.
 // onProgress({ phase, outputTokens, textChars }) is called as tokens arrive.
@@ -188,7 +152,7 @@ export async function callClaude({
         await sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 2000 * attempt);
         continue;
       }
-      throw new ClaudeError(friendlyError(res.status, type, message), { status: res.status, type, retryable });
+      throw new ClaudeError(friendlyError(res.status, type, message), { status: res.status, type, retryable, provider: 'anthropic' });
     }
     try {
       const out = await collectStream(res.body, onProgress);
@@ -217,16 +181,4 @@ function friendlyError(status, type, message) {
   if (status === 429) return 'Rate limited by the Claude API. Wait a minute and try again.';
   if (status === 529) return 'The Claude API is overloaded right now. Try again shortly.';
   return `Claude API error (${type}): ${message}`;
-}
-
-// Structured outputs guarantee JSON; this is only a belt-and-braces parse.
-export function parseJsonText(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
-    throw new ClaudeError('The model did not return JSON', { type: 'parse_error' });
-  }
 }

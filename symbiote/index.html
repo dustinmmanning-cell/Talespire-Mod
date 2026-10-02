@@ -37,7 +37,7 @@
       <label class="field grow">
         <span>Size</span>
         <select id="size">
-          <option value="auto">Let Claude choose</option>
+          <option value="auto">Let the AI choose</option>
           <option value="room">Room (16×16)</option>
           <option value="building">Building (28×24)</option>
           <option value="compound">Compound (40×32)</option>
@@ -76,6 +76,7 @@
       <button class="primary" id="generate">Generate</button>
       <button class="hidden" id="cancel">Cancel</button>
     </div>
+    <p id="model-line" class="muted small"></p>
     <div id="progress" class="progress hidden" aria-live="polite"><span class="spinner"></span><span id="progress-text"></span></div>
     <div id="create-error" class="error hidden" role="alert"></div>
 
@@ -99,9 +100,9 @@
       <label class="field grow"><span>Colours</span><input id="trace-colors" type="number" min="2" max="16" value="8"></label>
     </div>
     <div class="row">
-      <label class="check"><input type="checkbox" id="trace-ai" checked> Let Claude label colours and count the grid</label>
+      <label class="check"><input type="checkbox" id="trace-ai" checked> Let the AI label colours and count the grid</label>
     </div>
-    <label class="field"><span>Notes for Claude (optional)</span><input id="trace-prompt" type="text" placeholder="e.g. the brown squares are wooden doors"></label>
+    <label class="field"><span>Notes for the AI (optional)</span><input id="trace-prompt" type="text" placeholder="e.g. the brown squares are wooden doors"></label>
     <div class="actions">
       <button class="primary" id="trace-run">Trace</button>
     </div>
@@ -122,6 +123,7 @@
       <p id="r-summary" class="summary"></p>
       <div id="r-preview" class="preview" title="Click to zoom"></div>
       <p id="r-stats" class="muted"></p>
+      <p id="r-ai" class="muted small hidden"></p>
 
       <div class="parts">
         <h3 id="r-parts-title">Place it</h3>
@@ -135,7 +137,7 @@
           <textarea id="refine-prompt" rows="2" placeholder="Add a stable east of the inn and make the river wider."></textarea>
         </label>
         <div class="actions">
-          <button class="primary" id="refine">Refine with Claude</button>
+          <button class="primary" id="refine">Refine with AI</button>
           <button id="reseed" title="Same plan, different furniture and scatter">Reshuffle details</button>
         </div>
         <div id="refine-progress" class="progress hidden"><span class="spinner"></span><span id="refine-progress-text"></span></div>
@@ -172,18 +174,17 @@
 
   <!-- SETTINGS -->
   <section id="tab-settings" class="tab hidden" role="tabpanel">
-    <label class="field"><span>Anthropic API key</span>
-      <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-…">
+    <h3 class="first">AI</h3>
+    <label class="field"><span>Provider</span>
+      <select id="provider"></select>
     </label>
-    <p class="hint">Stored only in this Symbiote's folder on this computer and sent only to the API. Using the CLI proxy instead? Set the base URL below and type <code>proxy</code> as the key.</p>
+    <label class="field"><span id="api-key-label">API key</span>
+      <input id="api-key" type="password" autocomplete="off">
+    </label>
+    <p class="hint" id="key-hint"></p>
     <div class="row">
-      <label class="field grow"><span>Model</span>
-        <select id="model">
-          <option value="claude-opus-5-5">Claude Opus 5.5 (best)</option>
-          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (faster)</option>
-          <option value="claude-fable-5-1">Claude Fable 5.1 (most capable)</option>
-          <option value="claude-haiku-4-5">Claude Haiku 4.5 (cheapest)</option>
-        </select>
+      <label class="field grow wide"><span>Model</span>
+        <select id="model"></select>
       </label>
       <label class="field grow"><span>Effort</span>
         <select id="effort">
@@ -193,7 +194,13 @@
         </select>
       </label>
     </div>
-    <label class="field"><span>API base URL</span><input id="base-url" type="url" placeholder="https://api.anthropic.com"></label>
+    <label class="field hidden" id="custom-model-box"><span>Model ID</span>
+      <input id="custom-model" type="text" autocomplete="off" spellcheck="false" placeholder="exact model ID from your provider">
+    </label>
+    <p class="hint" id="cost-hint"></p>
+    <label class="field"><span>API base URL</span><input id="base-url" type="url"></label>
+
+    <h3>Building</h3>
     <div class="row">
       <label class="field grow"><span>Furniture facing</span>
         <select id="facing">

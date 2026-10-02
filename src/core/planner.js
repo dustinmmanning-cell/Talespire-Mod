@@ -1,6 +1,7 @@
 // Prompting: description (+ optional reference image) -> build plan.
 
-import { callClaude, parseJsonText, DEFAULT_MODEL } from './claude.js';
+import { callModel } from './ai.js';
+import { parseJsonText } from './http.js';
 import { PLAN_SCHEMA, normalizePlan, MAX_MAP_TILES } from './plan.js';
 import { STYLES, SURFACES, WALL_MATERIALS } from './kit.js';
 import { TRACE_MEANINGS } from './trace.js';
@@ -97,17 +98,20 @@ function stripForPrompt(plan) {
 }
 
 // The one call most callers need.
-//   opts: { apiKey, baseUrl, model, effort, prompt, size, style, image, imageMode,
-//           previousPlan, catalog, onProgress, signal, fetchImpl }
-// -> { plan, warnings, usage, model, raw }
+//   opts: { provider, apiKey, baseUrl, model, effort, prompt, size, style, image,
+//           imageMode, previousPlan, catalog, onProgress, signal, fetchImpl }
+// provider is 'anthropic' (default) or 'openai'; model defaults per provider.
+// -> { plan, warnings, provider, model, usage (normalized), cost (USD|null), raw }
 export async function generatePlan(opts) {
   const system = systemPrompt(opts.catalog);
   const messages = [{ role: 'user', content: buildUserContent(opts) }];
-  const out = await callClaude({
+  const out = await callModel({
+    provider: opts.provider,
     apiKey: opts.apiKey,
     baseUrl: opts.baseUrl,
-    model: opts.model || DEFAULT_MODEL,
+    model: opts.model,
     effort: opts.effort || 'high',
+    schemaName: 'build_plan',
     system,
     messages,
     schema: PLAN_SCHEMA,
@@ -118,7 +122,7 @@ export async function generatePlan(opts) {
   });
   const raw = parseJsonText(out.text);
   const { plan, warnings } = normalizePlan(raw);
-  return { plan, warnings, usage: out.usage, model: out.model, raw };
+  return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, raw };
 }
 
 // ---- trace mode: label colour clusters of a traced map image ----------------
@@ -174,17 +178,19 @@ export function traceUserText(trace, prompt) {
   ].join('\n');
 }
 
-// -> { labels, extras: {title, summary, notes, style, props}, grid: [cols, rows]|null, usage, model }
+// -> { labels, extras: {title, summary, notes, style, props}, grid: [cols, rows]|null, provider, model, usage, cost }
 export async function labelTrace(opts) {
   const { trace, image, prompt } = opts;
   const content = [];
   if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } });
   content.push({ type: 'text', text: traceUserText(trace, prompt) });
-  const out = await callClaude({
+  const out = await callModel({
+    provider: opts.provider,
     apiKey: opts.apiKey,
     baseUrl: opts.baseUrl,
-    model: opts.model || DEFAULT_MODEL,
+    model: opts.model,
     effort: opts.effort || 'medium',
+    schemaName: 'trace_labels',
     system: systemPrompt(opts.catalog),
     messages: [{ role: 'user', content }],
     schema: traceSchema(),
@@ -203,12 +209,14 @@ export async function labelTrace(opts) {
     labels,
     extras: { title: raw.title, summary: raw.summary, notes: raw.notes, style: raw.style, props: Array.isArray(raw.props) ? raw.props : [] },
     grid: cols >= 4 && rows >= 4 && cols <= MAX_MAP_TILES && rows <= MAX_MAP_TILES ? [cols, rows] : null,
-    usage: out.usage,
+    provider: out.provider,
     model: out.model,
+    usage: out.usage,
+    cost: out.cost,
   };
 }
 
-// After re-tracing at the grid size Claude counted, carry labels across by
+// After re-tracing at the grid size the model counted, carry labels across by
 // nearest cluster colour and rescale prop positions.
 export function remapTraceLabels(oldTrace, newTrace, labels, props = []) {
   const byOld = new Map(labels.map((l) => [l.index, l]));

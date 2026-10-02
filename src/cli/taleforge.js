@@ -9,14 +9,15 @@ import { createServer } from 'node:http';
 import {
   Catalog, Kit, STYLES, buildSlabs, textReport, generatePlan, labelTrace, remapTraceLabels, traceImage, heuristicLabels,
   traceToPlan, autoGridSize, resizeRgba, decodePng, encodePng, sniffImageType, decodeSlab, encodeSlab, demoCatalog,
-  normalizePlan, probePlan, facingProbe, SIZE_PRESETS, DEFAULT_MODEL, describeKitReport, bytesToBase64, ClaudeError,
+  normalizePlan, probePlan, facingProbe, SIZE_PRESETS, describeKitReport, bytesToBase64, ApiError,
+  PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, estimateBuildCost, formatCost,
 } from '../core/index.js';
 
 const HELP = `TaleForge -- AI board builder for TaleSpire
 
 Usage:
-  taleforge generate "<description>" [options]     plan with Claude, build slabs
-  taleforge refine <plan.json> "<change>" [options] edit an existing plan with Claude
+  taleforge generate "<description>" [options]     plan with AI (Claude or GPT), build slabs
+  taleforge refine <plan.json> "<change>" [options] edit an existing plan with AI
   taleforge build <plan.json> [options]            build slabs from a plan (no AI)
   taleforge trace <map.png> [options]              turn a top-down map image into slabs
   taleforge catalog [--talespire DIR] [--out f]    export your asset catalog as JSON
@@ -24,6 +25,7 @@ Usage:
   taleforge kit [--style s]                        show which asset fills each role
   taleforge decode <slab.txt>                      list what a slab contains
   taleforge probe house|tower|facing [--role bed]  calibration slabs to check in-game
+  taleforge models [--effort high]                 AI models, prices and estimated cost per build
   taleforge proxy [--port 8787]                    local API proxy for the Symbiote
 
 Asset catalog (needed for real slabs; GUIDs come from YOUR install):
@@ -36,16 +38,17 @@ Generation:
   --image-mode M      'reference' (mood, default) or 'layout' (reproduce a top-down map)
   --size WxH|PRESET   e.g. 40x30, or ${Object.keys(SIZE_PRESETS).join(', ')}
   --style S           ${STYLES.join(', ')}
-  --model ID          default ${DEFAULT_MODEL}
+  --provider P        anthropic or openai (default: whichever API key is set, Anthropic first)
+  --model ID          default ${PROVIDERS.anthropic.defaultModel} / ${PROVIDERS.openai.defaultModel}; see 'taleforge models'
   --effort E          low | medium | high (default) | xhigh | max
-  --api-key KEY       or set ANTHROPIC_API_KEY
-  --base-url URL      API base URL (or TALEFORGE_API_BASE); default https://api.anthropic.com
+  --api-key KEY       or set ANTHROPIC_API_KEY / OPENAI_API_KEY
+  --base-url URL      API base URL, e.g. a proxy (or TALEFORGE_ANTHROPIC_BASE / TALEFORGE_OPENAI_BASE)
 
 Trace:
   --size WxH          grid size (default: 48 tiles on the long side)
   --colors N          colour clusters (default 8)
   --setting S         auto | outdoor | dungeon (offline labelling)
-  --ai                let Claude label the clusters and count the battle grid
+  --ai                let the AI label the clusters and count the battle grid
 
 Output:
   --out DIR           output folder (default ./out)
@@ -212,7 +215,7 @@ function progress() {
   return (ev) => {
     const secs = ((Date.now() - t0) / 1000).toFixed(0);
     let line = '';
-    if (ev.phase === 'connecting') line = 'asking Claude...';
+    if (ev.phase === 'connecting') line = 'asking the model...';
     else if (ev.phase === 'retrying') line = `retrying (attempt ${ev.attempt})...`;
     else if (ev.phase === 'thinking') line = `thinking... ${secs}s`;
     else if (ev.phase === 'writing') line = `drawing the plan... ${ev.textChars} chars, ${secs}s`;
@@ -225,19 +228,29 @@ function progress() {
 }
 
 function apiOptions(flags) {
-  const apiKey = flags['api-key'] || process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) fail('set ANTHROPIC_API_KEY (or pass --api-key) to use Claude. Get a key at https://console.anthropic.com/');
-  // Deliberately not ANTHROPIC_BASE_URL: tools and hosted environments set that
-  // for their own routing, and the user's key must not follow it by accident.
-  return { apiKey, baseUrl: flags['base-url'] || process.env.TALEFORGE_API_BASE || undefined, model: flags.model || DEFAULT_MODEL, effort: flags.effort || 'high' };
+  let provider = flags.provider || providerOf(flags.model);
+  if (!provider) provider = !process.env.ANTHROPIC_API_KEY && process.env.OPENAI_API_KEY ? 'openai' : 'anthropic';
+  const info = PROVIDERS[provider];
+  if (!info) fail(`--provider must be one of ${PROVIDER_IDS.join(', ')}`);
+  const apiKey = flags['api-key'] || process.env[info.envKey];
+  if (!apiKey) fail(`set ${info.envKey} (or pass --api-key) to use ${info.label}. Get a key at https://${info.keySite}/`);
+  // Deliberately not ANTHROPIC_BASE_URL / OPENAI_BASE_URL: tools and hosted
+  // environments set those for their own routing, and the user's key must not
+  // follow them by accident.
+  const baseEnv = provider === 'openai' ? process.env.TALEFORGE_OPENAI_BASE : process.env.TALEFORGE_ANTHROPIC_BASE || process.env.TALEFORGE_API_BASE;
+  return { provider, apiKey, baseUrl: flags['base-url'] || baseEnv || undefined, model: flags.model || info.defaultModel, effort: flags.effort || 'high' };
 }
 
-async function withClaude(fn) {
+function usageLine(res) {
+  return `${res.model}: ${res.usage.inputTokens + res.usage.cachedInputTokens} in / ${res.usage.outputTokens} out tokens, about ${formatCost(res.cost)}`;
+}
+
+async function withAi(fn) {
   try {
     return await fn();
   } catch (e) {
     process.stderr.write('\n');
-    if (e instanceof ClaudeError) fail(e.message);
+    if (e instanceof ApiError) fail(e.message);
     throw e;
   } finally {
     process.stderr.write('\n');
@@ -252,11 +265,11 @@ async function cmdGenerate(args) {
   if (!prompt && !flags.image) fail('describe what to build, e.g. taleforge generate "a smugglers\' cove with a hidden dock"');
   const catalog = loadCatalog(flags);
   const image = flags.image ? await loadImageForApi(flags.image) : null;
-  const res = await withClaude(() => generatePlan({
+  const res = await withAi(() => generatePlan({
     ...apiOptions(flags), prompt, size: parseSize(flags.size), style: flags.style, image,
     imageMode: flags['image-mode'] === 'layout' ? 'layout' : 'reference', catalog, onProgress: progress(),
   }));
-  log(`plan "${res.plan.title}" from ${res.model} (${res.usage.output_tokens} output tokens)`);
+  log(`plan "${res.plan.title}" from ${usageLine(res)}`);
   await writeBuild(res.plan, catalog, flags, res.warnings);
 }
 
@@ -266,7 +279,8 @@ async function cmdRefine(args) {
   if (!planFile || !change) fail('usage: taleforge refine <plan.json> "<what to change>"');
   const catalog = loadCatalog(flags);
   const previousPlan = JSON.parse(readFileSync(planFile, 'utf8'));
-  const res = await withClaude(() => generatePlan({ ...apiOptions(flags), prompt: change, previousPlan, catalog, onProgress: progress() }));
+  const res = await withAi(() => generatePlan({ ...apiOptions(flags), prompt: change, previousPlan, catalog, onProgress: progress() }));
+  log(`plan "${res.plan.title}" from ${usageLine(res)}`);
   await writeBuild(res.plan, catalog, flags, res.warnings);
 }
 
@@ -296,11 +310,12 @@ async function cmdTrace(args) {
   if (flags.ai) {
     const small = resizeRgba(img, 1568);
     const image = { mediaType: 'image/png', data: bytesToBase64(await encodePng(small)) };
-    const res = await withClaude(() => labelTrace({ ...apiOptions(flags), effort: flags.effort || 'medium', trace, image, prompt: args._[2], catalog, onProgress: progress() }));
+    const res = await withAi(() => labelTrace({ ...apiOptions(flags), effort: flags.effort || 'medium', trace, image, prompt: args._[2], catalog, onProgress: progress() }));
+    log(`labels from ${usageLine(res)}`);
     labels = res.labels;
     extras = res.extras;
     if (res.grid && !flags.size && (Math.abs(res.grid[0] - size[0]) > 1 || Math.abs(res.grid[1] - size[1]) > 1)) {
-      log(`Claude counted a ${res.grid[0]}x${res.grid[1]} battle grid; re-tracing at that size`);
+      log(`the model counted a ${res.grid[0]}x${res.grid[1]} battle grid; re-tracing at that size`);
       size = res.grid;
       const again = traceImage(img, { gridW: size[0], gridH: size[1], colors });
       const moved = remapTraceLabels(trace, again, labels, extras.props);
@@ -382,16 +397,35 @@ async function cmdProbe(args) {
   await writeBuild(probePlan(kind), catalog, { ...flags, name: flags.name || `probe-${kind}` });
 }
 
+function cmdModels(args) {
+  const effort = args.flags.effort || 'high';
+  log(`Estimated cost of one typical building at '${effort}' effort (${TYPICAL_BUILD.inputTokens.toLocaleString()} tokens in, ~${TYPICAL_BUILD.outputTokens.toLocaleString()} out); prices per million tokens as of ${PRICES_AS_OF}.`);
+  for (const p of Object.values(PROVIDERS)) {
+    log('');
+    log(`${p.label}  (--provider ${p.id}, key: ${p.envKey})`);
+    for (const m of p.models) {
+      const def = m.id === p.defaultModel ? ' (default)' : '';
+      const price = `$${m.price.input} in / $${m.price.output} out`;
+      log(`  ${(m.id + def).padEnd(28)} ${m.label.padEnd(18)} ${m.note.padEnd(13)} ${price.padEnd(20)} ~${formatCost(estimateBuildCost(m.id, { effort }))} per build`);
+    }
+  }
+}
+
+// Relays the Symbiote's API calls so keys stay in environment variables:
+//   POST /v1/messages  -> Anthropic, with ANTHROPIC_API_KEY
+//   POST /v1/responses -> OpenAI, with OPENAI_API_KEY
 function cmdProxy(args) {
   const { flags } = args;
   const port = Number(flags.port) || 8787;
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) fail('set ANTHROPIC_API_KEY for the proxy to use');
-  const upstream = (process.env.TALEFORGE_API_BASE || 'https://api.anthropic.com').replace(/\/$/, '');
+  const routes = {
+    '/v1/messages': { key: process.env.ANTHROPIC_API_KEY, base: process.env.TALEFORGE_ANTHROPIC_BASE || process.env.TALEFORGE_API_BASE || PROVIDERS.anthropic.baseUrl, provider: 'anthropic' },
+    '/v1/responses': { key: process.env.OPENAI_API_KEY, base: process.env.TALEFORGE_OPENAI_BASE || PROVIDERS.openai.baseUrl, provider: 'openai' },
+  };
+  if (!routes['/v1/messages'].key && !routes['/v1/responses'].key) fail('set ANTHROPIC_API_KEY and/or OPENAI_API_KEY for the proxy to use');
   const server = createServer(async (req, res) => {
     const cors = {
       'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'content-type, x-api-key, anthropic-version, anthropic-beta, anthropic-dangerous-direct-browser-access',
+      'access-control-allow-headers': 'content-type, authorization, x-api-key, anthropic-version, anthropic-beta, anthropic-dangerous-direct-browser-access',
       'access-control-allow-methods': 'POST, OPTIONS',
     };
     if (req.method === 'OPTIONS') {
@@ -399,17 +433,28 @@ function cmdProxy(args) {
       res.end();
       return;
     }
-    if (req.method !== 'POST' || req.url !== '/v1/messages') {
+    const route = routes[req.url];
+    if (req.method !== 'POST' || !route) {
       res.writeHead(404, cors);
-      res.end('{"error":{"type":"not_found","message":"only POST /v1/messages"}}');
+      res.end('{"error":{"type":"not_found","message":"only POST /v1/messages and /v1/responses"}}');
+      return;
+    }
+    if (!route.key) {
+      res.writeHead(401, cors);
+      res.end(JSON.stringify({ error: { type: 'authentication_error', message: `the proxy has no ${route.provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'}` } }));
       return;
     }
     const chunks = [];
     for await (const c of req) chunks.push(c);
-    const headers = { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': req.headers['anthropic-version'] || '2023-06-01' };
-    if (req.headers['anthropic-beta']) headers['anthropic-beta'] = req.headers['anthropic-beta'];
+    const headers = { 'content-type': 'application/json' };
+    if (route.provider === 'openai') headers.authorization = `Bearer ${route.key}`;
+    else {
+      headers['x-api-key'] = route.key;
+      headers['anthropic-version'] = req.headers['anthropic-version'] || '2023-06-01';
+      if (req.headers['anthropic-beta']) headers['anthropic-beta'] = req.headers['anthropic-beta'];
+    }
     try {
-      const up = await fetch(`${upstream}/v1/messages`, { method: 'POST', headers, body: Buffer.concat(chunks) });
+      const up = await fetch(`${route.base.replace(/\/$/, '')}${req.url}`, { method: 'POST', headers, body: Buffer.concat(chunks) });
       res.writeHead(up.status, { ...cors, 'content-type': up.headers.get('content-type') || 'application/json' });
       for await (const c of up.body) res.write(c);
       res.end();
@@ -419,8 +464,9 @@ function cmdProxy(args) {
     }
   });
   server.listen(port, '127.0.0.1', () => {
-    log(`TaleForge proxy on http://127.0.0.1:${port} -> ${upstream}`);
-    log(`In the Symbiote settings set "API base URL" to http://127.0.0.1:${port} and the API key to "proxy".`);
+    for (const [path, r] of Object.entries(routes)) log(`${r.key ? 'relaying' : 'no key for'} ${path} -> ${r.base}`);
+    log(`TaleForge proxy on http://127.0.0.1:${port}`);
+    log(`In the Symbiote settings set the provider's "API base URL" to http://127.0.0.1:${port} and its API key to "proxy".`);
   });
 }
 
@@ -431,7 +477,7 @@ async function main() {
     process.stdout.write(HELP);
     return;
   }
-  const commands = { generate: cmdGenerate, refine: cmdRefine, build: cmdBuild, trace: cmdTrace, catalog: cmdCatalog, kit: cmdKit, decode: cmdDecode, probe: cmdProbe, proxy: cmdProxy };
+  const commands = { generate: cmdGenerate, refine: cmdRefine, build: cmdBuild, trace: cmdTrace, catalog: cmdCatalog, kit: cmdKit, decode: cmdDecode, probe: cmdProbe, models: cmdModels, proxy: cmdProxy };
   const fn = commands[cmd];
   if (!fn) fail(`unknown command "${cmd}". Run taleforge --help.`);
   await fn(args);

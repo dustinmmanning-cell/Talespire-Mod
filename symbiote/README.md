@@ -4,16 +4,20 @@ Describe a place, or show TaleForge a map, and it builds it in your board from *
 
 ## Quick start
 
-1. Open **Settings** and paste an Anthropic API key (get one at console.anthropic.com). It is stored only in this Symbiote's folder on your computer and sent only to the Claude API.
-2. On **Create**, describe what you want, pick a size, and press **Generate**.
-3. On **Result**, check the preview, then press **Send to hand** (you must be in GM mode on a board) and click to place it.
+1. Open **Settings** and set up the AI:
+   - **Provider**: Anthropic (Claude) or OpenAI (GPT), whichever you have an API key for (console.anthropic.com or platform.openai.com).
+   - **API key**: stored only in this Symbiote's folder on your computer and sent only to that provider's API. Each provider keeps its own key, so you can switch back and forth.
+   - **Model**: each option shows an estimated cost per build. After you've built with a model, the estimate becomes your own average.
+   - Press **Save settings**.
+2. On **Create**, describe what you want, pick a size, and press **Generate**. The line under the button shows which model will be used.
+3. On **Result**, check the preview, then press **Send to hand** (you must be in GM mode on a board) and click to place it. The result shows the model, tokens used and what the build cost.
 
 Large builds come in several parts. Place every part on the **same grid cell** without moving the camera: they carry matching corner markers so they line up. Delete the stacked marker tiles at the two corners afterwards.
 
 ## Ways to build
 
 - **Create**: a description, optionally with a reference image. "Mood" uses the image for inspiration; "Layout" reproduces a top-down map or floor plan.
-- **Trace**: turns a top-down battle map image into floors, walls, water and trees cell by cell, with Claude labelling what each colour means.
+- **Trace**: turns a top-down battle map image into floors, walls, water and trees cell by cell, with the AI labelling what each colour means.
 - **Refine**: after a build, describe a change ("add a stable east of the inn") and TaleForge redraws the plan.
 - **Plan JSON**: edit the plan by hand and rebuild instantly, no AI needed.
 

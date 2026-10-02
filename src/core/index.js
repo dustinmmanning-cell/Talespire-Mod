@@ -13,7 +13,14 @@ export { compilePlan, groupRuns } from './compile.js';
 export { chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET } from './chunk.js';
 export { renderPreviewSvg, MATERIAL_COLORS } from './preview.js';
 export { buildSlabs, textReport, markerTile, PASTE_HELP } from './build.js';
-export { callClaude, collectStream, readSse, parseJsonText, ClaudeError, DEFAULT_MODEL } from './claude.js';
+export { callClaude, collectStream, ClaudeError, DEFAULT_MODEL } from './claude.js';
+export { ApiError, readSse, parseJsonText } from './http.js';
+export { callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL } from './openai.js';
+export { callModel } from './ai.js';
+export {
+  PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf,
+  estimateBuildCost, formatCost, modelOptionLabel,
+} from './providers.js';
 export {
   generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema,
 } from './planner.js';

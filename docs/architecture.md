@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-    P["Description<br/>+ optional reference image"] --> C["Claude<br/>(structured output)"]
+    P["Description<br/>+ optional reference image"] --> C["AI model: Claude or GPT<br/>(structured output)"]
     M["Top-down map image"] --> T["Tracer<br/>grid + colour clusters"]
     T -->|"cluster table + map"| C
     C --> PL[("Build plan<br/>JSON, in tiles")]
@@ -19,20 +19,20 @@ flowchart LR
     K --> SVG["SVG preview"]
 ```
 
-## The design decision: Claude draws, code builds
+## The design decision: the AI draws, code builds
 
-Claude never writes asset IDs, world coordinates or slab bytes. It writes a **build plan**: a map drawn in tiles with semantic materials ("wood walls", "cobblestone") and roles ("bed", "anvil"). A deterministic compiler turns that plan into placements using the assets the GM actually owns. Splitting the work this way gives us:
+The model never writes asset IDs, world coordinates or slab bytes. It writes a **build plan**: a map drawn in tiles with semantic materials ("wood walls", "cobblestone") and roles ("bed", "anvil"). A deterministic compiler turns that plan into placements using the assets the GM actually owns. Splitting the work this way gives us:
 
 - **Correctness where it's easy to get wrong.** Wall insets, rotation conventions, collider offsets, surface alignment and prop collisions are handled in tested code, not left to the model.
 - **Robustness.** The plan is validated by a JSON schema (structured outputs) and then repaired by a normalizer. A bad rectangle gets clamped, a door on a missing wall gets snapped to the nearest real one, and an unreachable room gets a door added.
 - **Portability.** The same plan builds with any asset packs. Asset GUIDs are only looked up at the last step, in the user's own catalog.
-- **Editability.** The plan is short JSON. You can hand-edit it, keep it in version control, or refine it with Claude ("add a stable").
+- **Editability.** The plan is short JSON. You can hand-edit it, keep it in version control, or refine it with the AI ("add a stable").
 
-This mirrors what the citysmith project learned the hard way, but TaleForge lets Claude design the layout itself, not just pick parameters for a procedural generator. The compiler's guarantees are what make that safe.
+This mirrors what the citysmith project learned the hard way, but TaleForge lets the model design the layout itself, not just pick parameters for a procedural generator. The compiler's guarantees are what make that safe.
 
 ## The build plan
 
-Coordinates are in tiles (1 tile = 5 ft). (0, 0) is the top-left of the map; x grows east and y grows south, like an image. The full JSON schema is `PLAN_SCHEMA` in `src/core/plan.js`, and the instructions Claude sees are in `src/core/planner.js`.
+Coordinates are in tiles (1 tile = 5 ft). (0, 0) is the top-left of the map; x grows east and y grows south, like an image. The full JSON schema is `PLAN_SCHEMA` in `src/core/plan.js`, and the instructions the model sees are in `src/core/planner.js`.
 
 | Field | Meaning |
 |---|---|
@@ -97,45 +97,103 @@ The **Kit** tab shows every resolution with game thumbnails and the reason it wa
 1. Each grid cell's **dominant** colour is sampled, ignoring the cell's border so battle-grid lines don't dominate. An average would blur thin black walls into grey floor.
 2. The colours are clustered with weighted **k-means++ in CIE Lab**, and tiny clusters are merged.
 3. Clusters are labelled one of three ways:
-   - **Claude**, which sees the image, a cluster table and a character map of the clusters. It also counts the battle grid and adds landmark props.
+   - **The AI model**, which sees the image, a cluster table and a character map of the clusters. It also counts the battle grid and adds landmark props.
    - An **offline colour heuristic** (dark → wall in dungeons, blue → water, green → grass or forest, …).
    - **Hand-edited** labels in the Trace tab.
 4. The result is a plan with a `raster`. Connected floor cells become one walled structure; door-class cells join their neighbouring structure as doors.
 
-When Claude reports a grid size that differs from the first guess, the image is re-traced at that size. Labels carry across by nearest cluster colour, and prop positions are rescaled.
+When the model reports a grid size that differs from the first guess, the image is re-traced at that size. Labels carry across by nearest cluster colour, and prop positions are rescaled.
 
 ## Slabs, chunks and pasting
 
 `src/core/chunk.js` measures the real compressed size and splits large builds by recursive bisection of the footprint, so each part is a contiguous region (you can paste a subset). For vanilla pasting, every part carries the same two registration tiles just outside opposite corners of the whole build, computed from real collider extents. That gives every part the same bounding box, so they line up when placed on the same cell. A second, unregistered cut is written as LordAshes' multi-slab JSON for one-keystroke pasting with BepInEx. See [slab-format.md](slab-format.md).
 
-## Claude API usage
+## AI providers
 
-`src/core/claude.js` is a small streaming client over `fetch`. It uses raw HTTP rather than `@anthropic-ai/sdk` because the same file must run inside a Symbiote, which is a Chromium page loading local classic scripts with no npm or bundler. Each request:
+TaleForge can plan with **Anthropic (Claude)** or **OpenAI (GPT)**. Each client is a small streaming client over `fetch`. They use raw HTTP rather than the official SDKs because the same code must run inside a Symbiote, a Chromium page that loads local classic scripts with no npm or bundler.
 
-- defaults to **`claude-opus-5-5`**; the Symbiote also offers Sonnet 5.5, Fable 5.1 and Haiku 4.5
+`src/core/ai.js` has one entry point, `callModel()`. The planner hands it a system prompt, user content (text and images) and a JSON schema. `callModel()` picks the provider from the setting, or from the model name (`claude-…` or `gpt-…`), and returns:
+
+- the JSON text
+- the model that answered
+- usage in one normalized shape: uncached input, cached input, cache writes, output, reasoning
+- the cost in dollars
+
+Both providers get the same prompts, the same schemas, and images no larger than 1568 px on the long side (resized before sending). The plan and trace schemas are written to satisfy OpenAI's strict mode (every object closed and every property required, and none of the keywords strict mode rejects); a unit test checks this.
+
+### Anthropic: Messages API
+
+`src/core/claude.js` posts to `/v1/messages`. Each request:
+
+- defaults to **`claude-opus-5-5`**; Sonnet 5.5, Fable 5.1 and Haiku 4.5 are also listed
 - streams, since plans can be long
-- uses **structured outputs** (`output_config.format` with the plan's JSON schema), so every response parses
+- uses **structured outputs** (`output_config.format` with the JSON schema), so every response parses
 - uses **adaptive thinking**, with `effort: high` by default; the Symbiote offers medium, high and extra high
 - enables **server-side fallbacks** (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`). If the model declines, the API retries on its recommended fallback model, and any text streamed before the switch is discarded.
 - marks the stable system prompt with `cache_control`, including the GM's prop-name list, so repeat generations are cheaper
-- sends images no larger than 1568 px on the long side (resized client-side)
 - from the Symbiote, adds `anthropic-dangerous-direct-browser-access: true` so the API allows the cross-origin call. The key stays on the user's machine.
 
-Errors are mapped to plain messages: a bad key, rate limits, overload (retried), refusals, and `max_tokens` ("ask for a smaller area"). Haiku 4.5 requests omit thinking, effort and fallbacks, which it doesn't support.
+Haiku 4.5 requests omit thinking, effort and fallbacks, which it doesn't support.
 
-Prefer not to store an API key in the Symbiote? Run `taleforge proxy`, which reads `ANTHROPIC_API_KEY` and listens on `127.0.0.1` with CORS. Then point the Symbiote's base URL at it and use `proxy` as the key.
+### OpenAI: Responses API
+
+`src/core/openai.js` posts to `/v1/responses` with `Authorization: Bearer`. The request shape was taken from the official `openai-node` SDK's types. Each request:
+
+- defaults to **`gpt-6-astra`**; GPT-6.1 Sol and GPT-6 Luna are also listed
+- sends the system prompt as `instructions` and images as `input_image` data URLs with `detail: "high"`
+- uses **structured outputs**: `text.format` of type `json_schema`, with `strict: true`
+- sets `reasoning.effort` from the same effort setting. If a model rejects that level, the client retries once a level lower.
+- streams (`response.output_text.delta` and friends) and sets `store: false`, so OpenAI doesn't keep the response
+- relies on OpenAI's automatic prompt caching: the instructions are a stable prefix, so repeat generations bill most of the input at the cached rate
+
+OpenAI counts cached tokens inside `input_tokens` and reasoning tokens inside `output_tokens`. `normalizeUsage()` in `src/core/providers.js` untangles this so costs are computed the same way for both providers.
+
+### Errors
+
+Both clients map errors to plain messages that name the provider:
+
+- a bad key
+- rate limits and overload, which are retried
+- refusals
+- running out of output tokens ("ask for a smaller area")
+- for OpenAI, `insufficient_quota` ("out of credit or over its budget limit"), which is not retried
+
+### Cost estimates
+
+`src/core/providers.js` lists every model with its price per million tokens (as of `PRICES_AS_OF`):
+
+- input
+- cached input
+- output
+
+Cache writes are counted at 1.25× input, Anthropic's rate for its default cache.
+
+The Symbiote's model picker labels each option with an estimate for one typical building. It assumes 10,000 tokens in and about 12,000 out at high effort, scaled by the effort setting. Once you have built with a model, the label shows your own measured average for it instead ("~$0.41 your avg"). The averages are kept in the Symbiote's settings.
+
+Every result shows the model, tokens and actual cost, computed from the usage the API reported. The CLI prints the same after each call, and `taleforge models` prints the price table. Prices change, so treat the estimates as a guide and your provider's billing page as the truth.
+
+### Keeping keys out of the Symbiote
+
+Prefer not to store an API key in the Symbiote? Run `taleforge proxy`, which listens on `127.0.0.1` with CORS:
+
+- `/v1/messages` is relayed to Anthropic with `ANTHROPIC_API_KEY`.
+- `/v1/responses` is relayed to OpenAI with `OPENAI_API_KEY`.
+
+In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy` as the key.
 
 ## Testing
 
-- `npm test`: 45 unit tests, covering:
+- `npm test`: 55 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - kit resolution
   - compiler guarantees: walls, doors, reachability, open-plan dungeons, roofs, fortifications, no prop overlaps, floors on the grid, determinism
   - chunking and registration
-  - the Claude client against recorded SSE streams: request shape, fallbacks, refusals, retries
+  - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, refusals, retries, quota errors, usage and cost
+  - the plan and trace schemas against OpenAI's strict-mode rules
   - tracing, the PNG codec, and the bundle
-- `npm run test:e2e`: the real Symbiote in Chromium (Playwright) with a fake `TS` API and a fake Claude endpoint, from prompt to a decodable slab in the GM's hand, plus screenshots.
+- `npm run test:e2e`: the real Symbiote in Chromium (Playwright) with a fake `TS` API and fake Anthropic and OpenAI endpoints, from prompt to a decodable slab in the GM's hand, plus screenshots. It also switches provider and model in Settings and checks the cost labels, the request sent to each API, and the cost shown on the result.
+- `npm run test:live`: real API calls (a small room, a tavern, a refine, a traced map and the cheapest model), capped at $1.50 by default. Pass `--provider openai` or `--model ID` to choose.
 
 ## Known limitations
 
@@ -145,7 +203,8 @@ Prefer not to store an API key in the Symbiote? Run `taleforge proxy`, which rea
 - **Upper storeys are shells:** solid floors with stairs, no rooms or furniture.
 - **Roof kits** are recognised by name (Thatched, Village, Haunted). Other kits fall back to flat roofs.
 - **Large towns** become several slabs and need careful same-cell pasting, unless you use the multi-paste plugin.
-- **CORS from the Symbiote** relies on the API's browser-access header. If TaleSpire's web view blocks it, use the proxy.
+- **CORS from the Symbiote** relies on each API accepting calls from a web page (Anthropic's browser-access header; OpenAI allows browser calls, which its SDK supports with `dangerouslyAllowBrowser`). If TaleSpire's web view blocks either, use the proxy.
+- **OpenAI calls are tested against mocks** of the Responses API built from the official SDK's types. Run `npm run test:live -- --provider openai` once with a real key to confirm.
 
 ## Module map
 
@@ -161,7 +220,11 @@ Prefer not to store an API key in the Symbiote? Run `taleforge proxy`, which rea
 | `src/core/chunk.js` | Slab splitting, registration, multi-slab JSON |
 | `src/core/preview.js` | SVG preview |
 | `src/core/build.js` | One call from plan to slabs, preview and report |
-| `src/core/claude.js` | Messages API streaming client |
+| `src/core/ai.js` | `callModel()`: one call for either provider, with normalized usage and cost |
+| `src/core/providers.js` | Providers, models, prices, usage normalization, cost estimates |
+| `src/core/claude.js` | Anthropic Messages API streaming client |
+| `src/core/openai.js` | OpenAI Responses API streaming client |
+| `src/core/http.js` | Shared error type, SSE reader, JSON parsing |
 | `src/core/planner.js` | Prompts, plan generation, trace labelling |
 | `src/core/trace.js` | Image → labelled raster |
 | `src/core/png.js` | PNG decode/encode for the CLI |

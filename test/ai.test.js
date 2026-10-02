@@ -75,7 +75,10 @@ test('request shape: model, streaming, structured output, adaptive thinking, fal
   assert.ok(!('temperature' in body), 'sampling parameters are rejected by current models');
   assert.match(body.messages[0].content.at(-1).text, /about 24 x 20 tiles/);
   assert.equal(res.plan.title, 'The Prancing Gryphon');
-  assert.equal(res.usage.output_tokens, 4321);
+  assert.equal(res.provider, 'anthropic');
+  assert.equal(res.usage.outputTokens, 4321);
+  // Opus 5.5: 1200 in x $4/M + 4321 out x $20/M
+  assert.ok(Math.abs(res.cost - (1200 * 4 + 4321 * 20) / 1e6) < 1e-9);
 });
 
 test('haiku requests omit thinking, effort and fallbacks', async () => {
