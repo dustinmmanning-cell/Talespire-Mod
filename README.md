@@ -94,6 +94,7 @@ The CLI finds your asset catalog from `--talespire DIR`, `TALESPIRE_PATH`, commo
 ```bash
 npm test             # 45 unit tests, no dependencies
 npm run test:e2e     # the Symbiote in Chromium with fake TaleSpire and Claude APIs (needs Playwright)
+npm run test:live    # real Claude API calls: needs ANTHROPIC_API_KEY, spends real money (capped, default $1.50)
 npm run bundle       # rebuild symbiote/taleforge.js after changing src/core
 ```
 

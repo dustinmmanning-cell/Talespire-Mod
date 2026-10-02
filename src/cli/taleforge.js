@@ -39,7 +39,7 @@ Generation:
   --model ID          default ${DEFAULT_MODEL}
   --effort E          low | medium | high (default) | xhigh | max
   --api-key KEY       or set ANTHROPIC_API_KEY
-  --base-url URL      API base URL (e.g. a proxy)
+  --base-url URL      API base URL (or TALEFORGE_API_BASE); default https://api.anthropic.com
 
 Trace:
   --size WxH          grid size (default: 48 tiles on the long side)
@@ -227,7 +227,9 @@ function progress() {
 function apiOptions(flags) {
   const apiKey = flags['api-key'] || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) fail('set ANTHROPIC_API_KEY (or pass --api-key) to use Claude. Get a key at https://console.anthropic.com/');
-  return { apiKey, baseUrl: flags['base-url'] || process.env.ANTHROPIC_BASE_URL || undefined, model: flags.model || DEFAULT_MODEL, effort: flags.effort || 'high' };
+  // Deliberately not ANTHROPIC_BASE_URL: tools and hosted environments set that
+  // for their own routing, and the user's key must not follow it by accident.
+  return { apiKey, baseUrl: flags['base-url'] || process.env.TALEFORGE_API_BASE || undefined, model: flags.model || DEFAULT_MODEL, effort: flags.effort || 'high' };
 }
 
 async function withClaude(fn) {
@@ -385,7 +387,7 @@ function cmdProxy(args) {
   const port = Number(flags.port) || 8787;
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) fail('set ANTHROPIC_API_KEY for the proxy to use');
-  const upstream = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
+  const upstream = (process.env.TALEFORGE_API_BASE || 'https://api.anthropic.com').replace(/\/$/, '');
   const server = createServer(async (req, res) => {
     const cors = {
       'access-control-allow-origin': '*',

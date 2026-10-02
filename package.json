@@ -14,7 +14,8 @@
     "test": "node --test",
     "test:e2e": "node e2e/symbiote.e2e.mjs",
     "bundle": "node scripts/bundle.js",
-    "check-bundle": "node scripts/bundle.js --check"
+    "check-bundle": "node scripts/bundle.js --check",
+    "test:live": "node e2e/live.mjs"
   },
   "files": [
     "src",
