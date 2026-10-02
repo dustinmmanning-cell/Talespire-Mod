@@ -1,0 +1,46 @@
+{
+  "title": "Crypt of the Ash King",
+  "summary": "A small crypt: an entry hall, a pillared burial chamber and a sealed treasury, joined by narrow corridors.",
+  "width": 30,
+  "height": 22,
+  "style": "dungeon",
+  "ground": "none",
+  "areas": [],
+  "paths": [],
+  "structures": [
+    {
+      "id": "crypt", "label": "Crypt of the Ash King", "kind": "crypt",
+      "parts": [
+        { "x": 2, "y": 8, "w": 6, "h": 6 },
+        { "x": 8, "y": 10, "w": 6, "h": 2 },
+        { "x": 14, "y": 5, "w": 9, "h": 12 },
+        { "x": 18, "y": 2, "w": 2, "h": 3 },
+        { "x": 16, "y": 0, "w": 6, "h": 2 },
+        { "x": 23, "y": 10, "w": 4, "h": 2 },
+        { "x": 26, "y": 7, "w": 4, "h": 8 }
+      ],
+      "rooms": [
+        { "label": "Entry hall", "kind": "hall", "x": 2, "y": 8, "w": 6, "h": 6 },
+        { "label": "West passage", "kind": "corridor", "x": 8, "y": 10, "w": 6, "h": 2 },
+        { "label": "Burial chamber", "kind": "crypt", "x": 14, "y": 5, "w": 9, "h": 12 },
+        { "label": "North stair", "kind": "corridor", "x": 18, "y": 2, "w": 2, "h": 3 },
+        { "label": "Ossuary", "kind": "lair", "x": 16, "y": 0, "w": 6, "h": 2 },
+        { "label": "East passage", "kind": "corridor", "x": 23, "y": 10, "w": 4, "h": 2 },
+        { "label": "Treasury", "kind": "treasury", "x": 26, "y": 7, "w": 4, "h": 8 }
+      ],
+      "doors": [{ "x": 2, "y": 10, "side": "w" }, { "x": 26, "y": 10, "side": "w" }],
+      "wall": "stone", "floor": "stone_floor", "storeys": 1, "roof": "none", "windows": "none",
+      "interiorWalls": false, "furnish": "normal"
+    }
+  ],
+  "barriers": [],
+  "props": [
+    { "role": "throne", "asset": "", "x": 18.5, "y": 15.5, "rotation": 0 },
+    { "role": "pillar", "asset": "", "x": 16, "y": 7, "rotation": 0 },
+    { "role": "pillar", "asset": "", "x": 21, "y": 7, "rotation": 0 },
+    { "role": "pillar", "asset": "", "x": 16, "y": 14, "rotation": 0 },
+    { "role": "pillar", "asset": "", "x": 21, "y": 14, "rotation": 0 }
+  ],
+  "scatter": [],
+  "notes": "The treasury door is locked (DC 15)."
+}

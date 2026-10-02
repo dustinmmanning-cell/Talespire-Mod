@@ -1,0 +1,41 @@
+{
+  "title": "The Prancing Gryphon",
+  "summary": "A two-storey roadside tavern with a common room, kitchen and a back storeroom, set beside a cobbled road with a well out front.",
+  "width": 24,
+  "height": 20,
+  "style": "medieval",
+  "ground": "grass",
+  "areas": [
+    { "label": "yard", "material": "dirt", "points": [[3, 13], [21, 13], [21, 17], [3, 17]] }
+  ],
+  "paths": [
+    { "label": "road", "material": "cobblestone", "width": 3, "points": [[0, 18.5], [24, 18.5]] }
+  ],
+  "structures": [
+    {
+      "id": "tavern", "label": "The Prancing Gryphon", "kind": "tavern",
+      "parts": [{ "x": 4, "y": 3, "w": 16, "h": 10 }],
+      "rooms": [
+        { "label": "Common room", "kind": "bar", "x": 4, "y": 6, "w": 16, "h": 7 },
+        { "label": "Kitchen", "kind": "kitchen", "x": 4, "y": 3, "w": 8, "h": 3 },
+        { "label": "Storeroom", "kind": "storage", "x": 12, "y": 3, "w": 8, "h": 3 }
+      ],
+      "doors": [{ "x": 11, "y": 12, "side": "s" }, { "x": 8, "y": 6, "side": "n" }],
+      "wall": "wood", "floor": "wood_floor", "storeys": 2, "roof": "pitched", "windows": "few",
+      "interiorWalls": true, "furnish": "normal"
+    }
+  ],
+  "barriers": [
+    { "label": "yard fence", "kind": "fence", "material": "wood", "points": [[2, 13], [2, 17]], "closed": false, "gates": [], "towers": false }
+  ],
+  "props": [
+    { "role": "well", "asset": "", "x": 16.5, "y": 15.5, "rotation": 0 },
+    { "role": "cart", "asset": "", "x": 6.5, "y": 15.5, "rotation": 90 },
+    { "role": "sign", "asset": "", "x": 12.5, "y": 14, "rotation": 0 }
+  ],
+  "scatter": [
+    { "role": "tree", "asset": "", "points": [[0, 0], [24, 0], [24, 2], [0, 2]], "density": 0.25 },
+    { "role": "bush", "asset": "", "points": [[21, 3], [24, 3], [24, 13], [21, 13]], "density": 0.2 }
+  ],
+  "notes": "The cellar trapdoor is in the storeroom."
+}

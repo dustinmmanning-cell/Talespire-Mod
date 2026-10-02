@@ -1,0 +1,40 @@
+{
+  "title": "Millbrook",
+  "summary": "A walled hamlet on a river bend: a few cottages, a smithy and a chapel around a market square, with fields outside the east gate.",
+  "width": 60,
+  "height": 44,
+  "style": "medieval",
+  "ground": "grass",
+  "areas": [
+    { "label": "market square", "material": "cobblestone", "points": [[22, 18], [34, 18], [34, 27], [22, 27]] },
+    { "label": "fields", "material": "field", "points": [[46, 4], [58, 4], [58, 18], [46, 18]] }
+  ],
+  "paths": [
+    { "label": "high street", "material": "cobblestone", "width": 2, "points": [[4.5, 22.5], [44.5, 22.5]] },
+    { "label": "lane", "material": "dirt", "width": 2, "points": [[28.5, 6.5], [28.5, 38.5]] },
+    { "label": "river", "material": "water", "width": 3, "points": [[0, 40.5], [20, 41.5], [40, 39.5], [60, 41.5]] }
+  ],
+  "structures": [
+    { "id": "smithy", "label": "Brann's Smithy", "kind": "smithy", "parts": [{ "x": 10, "y": 15, "w": 7, "h": 5 }], "rooms": [], "doors": [{ "x": 13, "y": 19, "side": "s" }], "wall": "stone", "floor": "stone_floor", "storeys": 1, "roof": "pitched", "windows": "few", "interiorWalls": false, "furnish": "normal" },
+    { "id": "chapel", "label": "Chapel of the Dawn", "kind": "chapel", "parts": [{ "x": 36, "y": 12, "w": 7, "h": 10 }], "rooms": [], "doors": [{ "x": 39, "y": 21, "side": "s" }], "wall": "stone", "floor": "stone_floor", "storeys": 1, "roof": "pitched", "windows": "many", "interiorWalls": false, "furnish": "normal" },
+    { "id": "c1", "label": "Cottage", "kind": "cottage", "parts": [{ "x": 10, "y": 25, "w": 6, "h": 5 }], "rooms": [], "doors": [{ "x": 12, "y": 25, "side": "n" }], "wall": "wood", "floor": "wood_floor", "storeys": 1, "roof": "pitched", "windows": "few", "interiorWalls": false, "furnish": "normal" },
+    { "id": "c2", "label": "Cottage", "kind": "cottage", "parts": [{ "x": 18, "y": 28, "w": 5, "h": 5 }, { "x": 18, "y": 33, "w": 3, "h": 2 }], "rooms": [], "doors": [], "wall": "wood", "floor": "wood_floor", "storeys": 1, "roof": "pitched", "windows": "few", "interiorWalls": false, "furnish": "sparse" },
+    { "id": "inn", "label": "The Mill Wheel", "kind": "inn", "parts": [{ "x": 31, "y": 26, "w": 10, "h": 8 }], "rooms": [{ "label": "Taproom", "kind": "bar", "x": 31, "y": 26, "w": 10, "h": 5 }, { "label": "Rooms", "kind": "bedroom", "x": 31, "y": 31, "w": 10, "h": 3 }], "doors": [{ "x": 34, "y": 26, "side": "n" }], "wall": "wood", "floor": "wood_floor", "storeys": 2, "roof": "pitched", "windows": "few", "interiorWalls": true, "furnish": "normal" }
+  ],
+  "barriers": [
+    { "label": "town wall", "kind": "fortification", "material": "castle", "points": [[6, 8], [44, 8], [44, 37], [6, 37]], "closed": true, "gates": [[6, 22.5], [44, 22.5]], "towers": true },
+    { "label": "field fence", "kind": "fence", "material": "wood", "points": [[46, 3], [58, 3]], "closed": false, "gates": [], "towers": false }
+  ],
+  "props": [
+    { "role": "well", "asset": "", "x": 28, "y": 22, "rotation": 0 },
+    { "role": "market_stall", "asset": "", "x": 24.5, "y": 20, "rotation": 0 },
+    { "role": "market_stall", "asset": "", "x": 31.5, "y": 20, "rotation": 0 },
+    { "role": "boat", "asset": "", "x": 25, "y": 40.5, "rotation": 90 }
+  ],
+  "scatter": [
+    { "role": "tree", "asset": "", "points": [[0, 0], [60, 0], [60, 3], [0, 3]], "density": 0.3 },
+    { "role": "tree", "asset": "", "points": [[0, 3], [5, 3], [5, 38], [0, 38]], "density": 0.3 },
+    { "role": "rock", "asset": "", "points": [[45, 20], [60, 20], [60, 38], [45, 38]], "density": 0.05 }
+  ],
+  "notes": "Gates in the west and east walls."
+}

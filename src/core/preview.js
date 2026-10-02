@@ -1,0 +1,116 @@
+// Top-down SVG preview of a compiled build: surfaces, walls, doors, windows,
+// barriers, props and (optionally) how the build is cut into slabs. Used by
+// the Symbiote UI and written next to the slabs by the CLI.
+
+export const MATERIAL_COLORS = {
+  grass: '#6d9b4a', dirt: '#8a6a45', mud: '#6b5338', gravel: '#9a9488', sand: '#d8c38e', snow: '#eef2f5',
+  ice: '#bfe3f0', cobblestone: '#8c8c8c', flagstone: '#a39e93', stone_floor: '#7d7a76', wood_floor: '#a9773f',
+  plank: '#9b6b3b', carpet: '#8e2d3a', marble: '#e6e1d8', tile: '#c9b79c', cave_floor: '#5f5650', water: '#3f7fbf',
+  deep_water: '#2a5d91', swamp: '#5b6b3c', lava: '#d2491c', field: '#a58a4f',
+};
+
+const PROP_COLORS = {
+  nature: '#2f5d27', furniture: '#7a4a1f', light: '#f2c14e', container: '#b07a3c', religious: '#d9d0f0', other: '#e0e0e0',
+};
+const PROP_CLASS = {
+  tree: 'nature', conifer: 'nature', dead_tree: 'nature', bush: 'nature', rock: 'nature', boulder: 'nature', flowers: 'nature',
+  tall_grass: 'nature', log: 'nature', stump: 'nature', mushroom: 'nature', crystal: 'nature',
+  barrel: 'container', crate: 'container', sack: 'container', chest: 'container', pottery: 'container',
+  torch: 'light', lantern: 'light', candle: 'light', brazier: 'light', campfire: 'light', chandelier: 'light',
+  altar: 'religious', statue: 'religious', pew: 'religious', coffin: 'religious', tombstone: 'religious',
+};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+// result: compilePlan() output. chunks: optional [{ region: {x, y, w, h}, label }].
+export function renderPreviewSvg(result, { scale = 14, chunks = null, title = true } = {}) {
+  const g = result.grid;
+  const W = g.width;
+  const H = g.height;
+  const S = scale;
+  const header = title ? 26 : 0;
+  const out = [];
+  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-header} ${W * S} ${H * S + header}" width="${W * S}" height="${H * S + header}" font-family="Georgia, serif">`);
+  out.push(`<rect x="0" y="${-header}" width="${W * S}" height="${H * S + header}" fill="#1b1b1f"/>`);
+  if (title) {
+    out.push(`<text x="6" y="-8" fill="#f0e6d0" font-size="15">${esc(result.plan.title)}  <tspan fill="#9a948a" font-size="11">${W}x${H} tiles, ${result.stats.total} assets</tspan></text>`);
+  }
+  // surfaces, merged into horizontal runs to keep the SVG small
+  for (let y = 0; y < H; y++) {
+    let x = 0;
+    while (x < W) {
+      const m = g.surf[y * W + x];
+      let x1 = x + 1;
+      while (x1 < W && g.surf[y * W + x1] === m) x1++;
+      if (m) out.push(`<rect x="${x * S}" y="${y * S}" width="${(x1 - x) * S}" height="${S}" fill="${MATERIAL_COLORS[m] || '#888'}"/>`);
+      x = x1;
+    }
+  }
+  // faint 5-tile grid
+  const grid = [];
+  for (let x = 5; x < W; x += 5) grid.push(`M${x * S} 0V${H * S}`);
+  for (let y = 5; y < H; y += 5) grid.push(`M0 ${y * S}H${W * S}`);
+  out.push(`<path d="${grid.join('')}" stroke="#000" stroke-opacity="0.12" stroke-width="1"/>`);
+
+  const edgeLine = (x, y, side, inset) => {
+    const t = inset * S;
+    if (side === 'n') return [x * S, y * S + t, (x + 1) * S, y * S + t];
+    if (side === 's') return [x * S, (y + 1) * S - t, (x + 1) * S, (y + 1) * S - t];
+    if (side === 'w') return [x * S + t, y * S, x * S + t, (y + 1) * S];
+    return [(x + 1) * S - t, y * S, (x + 1) * S - t, (y + 1) * S];
+  };
+  const walls = [];
+  const doors = [];
+  const windows = [];
+  for (const e of g.edges) {
+    const [x1, y1, x2, y2] = edgeLine(e.x, e.y, e.side, 0.12);
+    const seg = `M${x1} ${y1}L${x2} ${y2}`;
+    if (e.type === 'door') doors.push(seg);
+    else if (e.type === 'window') windows.push(seg);
+    else if (e.type !== 'open') walls.push(seg);
+  }
+  for (const b of g.barriers || []) {
+    for (const e of b.edges) {
+      const [x1, y1, x2, y2] = edgeLine(e.x, e.y, e.side, 0.12);
+      const seg = `M${x1} ${y1}L${x2} ${y2}`;
+      if (e.type === 'gate') doors.push(seg);
+      else if (b.kind === 'fence' || b.kind === 'hedge') windows.push(seg);
+      else walls.push(seg);
+    }
+  }
+  out.push(`<path d="${walls.join('')}" stroke="#2a2522" stroke-width="${Math.max(2, S * 0.24)}" stroke-linecap="square"/>`);
+  out.push(`<path d="${windows.join('')}" stroke="#9fd3f2" stroke-width="${Math.max(2, S * 0.18)}"/>`);
+  out.push(`<path d="${doors.join('')}" stroke="#e8a33d" stroke-width="${Math.max(2, S * 0.3)}"/>`);
+
+  for (const p of g.props || []) {
+    const cls = PROP_CLASS[p.role] || (p.role === 'fence' ? 'furniture' : 'furniture');
+    const r = cls === 'nature' && /tree|conifer/.test(p.role) ? S * 0.45 : S * 0.22;
+    out.push(`<circle cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="${r.toFixed(1)}" fill="${PROP_COLORS[cls] || PROP_COLORS.other}" stroke="#000" stroke-opacity="0.5"><title>${esc(p.name || p.role)}</title></circle>`);
+  }
+
+  for (const s of g.structures) {
+    if (s.synthetic || s.cells.length === 0) continue;
+    let sx = 0;
+    let sy = 0;
+    for (const c of s.cells) {
+      sx += (c % W) + 0.5;
+      sy += Math.floor(c / W) + 0.5;
+    }
+    const cx = (sx / s.cells.length) * S;
+    const cy = (sy / s.cells.length) * S;
+    const fs = Math.max(9, Math.min(14, S * 0.85));
+    out.push(`<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" font-size="${fs}" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${esc(s.label)}${s.storeys > 1 ? ` (${s.storeys}F)` : ''}</text>`);
+  }
+
+  if (chunks) {
+    chunks.forEach((ch, i) => {
+      const r = ch.region;
+      out.push(`<rect x="${r.x * S}" y="${r.y * S}" width="${r.w * S}" height="${r.h * S}" fill="none" stroke="#ff4fd8" stroke-width="2" stroke-dasharray="6 4"/>`);
+      out.push(`<text x="${r.x * S + 4}" y="${r.y * S + 14}" font-size="12" fill="#ff4fd8" stroke="#000" stroke-width="3" paint-order="stroke">${esc(ch.label || `#${i + 1}`)}</text>`);
+    });
+  }
+  out.push('</svg>');
+  return out.join('\n');
+}
