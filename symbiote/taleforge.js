@@ -331,6 +331,13 @@
       return normalizeName(s).split(/[^a-z0-9]+/).filter(Boolean);
     }
 
+    function tagList(v) {
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string') return v.split(',');
+      if (v && typeof v === 'object') return Array.isArray(v.$values) ? v.$values : Object.values(v).filter((t) => typeof t === 'string');
+      return [];
+    }
+
     function  makeAsset(fields) {
       const size = fields.size || { x: 1, y: 1, z: 1 };
       const center = fields.center || { x: size.x / 2, y: size.y / 2, z: size.z / 2 };
@@ -339,7 +346,7 @@
         name: String(fields.name || '').trim(),
         kind: fields.kind,
         group: String(fields.group || '').trim(),
-        tags: (fields.tags || []).map((t) => String(t).trim().toLowerCase()).filter(Boolean),
+        tags: tagList(fields.tags).map((t) => String(t).trim().toLowerCase()).filter(Boolean),
         size: { x: r3(size.x) || 1, y: r3(size.y) || 1, z: r3(size.z) || 1 },
         center: { x: r3(center.x), y: r3(center.y), z: r3(center.z) },
         pack: fields.pack || '',
@@ -391,15 +398,16 @@
     }
 
     function  assetsFromContentPacks(packInfos) {
+      const packs = listOf(packInfos).filter((p) => p && typeof p === 'object');
       const tiles = [];
-      for (const p of packInfos) for (const t of p.tiles || []) tiles.push(t);
+      for (const p of packs) for (const t of listOf(p.tiles)) tiles.push(t);
       const scale = inferBoundsScale(tiles);
       const out = [];
-      for (const pack of packInfos) {
+      for (const pack of packs) {
         const packName = pack.optionalName || pack.id || '';
         for (const [key, kind] of [['tiles', 'tile'], ['props', 'prop']]) {
-          for (const e of pack[key] || []) {
-            if (!e || !e.id) continue;
+          for (const e of listOf(pack[key])) {
+            if (!e || typeof e !== 'object' || !e.id || typeof e.id !== 'string') continue;
             const b = e.colliderBoundsBound || {};
             const size = { x: (b.width || 1) * scale, y: (b.height || 1) * scale, z: (b.depth || 1) * scale };
             const c = b.center || {};
@@ -413,6 +421,54 @@
         }
       }
       return { assets: out, boundsScale: scale };
+    }
+
+    // The docs say tiles and props are arrays, but TaleSpire has been seen
+    // sending something else for them (possibly only for some mods' packs).
+    // Accept arrays, .NET-style { $values: [...] } wrappers, array-likes, other
+    // iterables, and objects keyed by asset id.
+    const GUID_KEY = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+    const isElement = (e) => !!e && typeof e === 'object' && ('id' in e || 'name' in e);
+    function  listOf(v) {
+      if (Array.isArray(v)) return v;
+      if (!v || typeof v !== 'object') return [];
+      if (Array.isArray(v.$values)) return v.$values;
+      if (typeof v[Symbol.iterator] === 'function') return [...v];
+      if (typeof v.length === 'number') return Array.from(v);
+      const entries = Object.entries(v);
+      const nested = entries.find(([, x]) => Array.isArray(x) && x.some(isElement));
+      if (nested && !entries.some(([, x]) => isElement(x))) return nested[1];
+      return entries.filter(([, e]) => isElement(e)).map(([k, e]) => (e.id || !GUID_KEY.test(k) ? e : { ...e, id: k }));
+    }
+
+    // A short description of what TaleSpire sent for each pack, for bug reports:
+    // the shapes of the fields, never the whole catalog.
+    function  describePackShapes(packInfos, { maxPacks = 30 } = {}) {
+      const shape = (v) => {
+        if (Array.isArray(v)) return { type: 'array', length: v.length, first: v.length ? shapeOfItem(v[0]) : null };
+        if (v && typeof v === 'object') {
+          const keys = Object.keys(v);
+          return { type: 'object', keyCount: keys.length, firstKeys: keys.slice(0, 4), first: keys.length ? shapeOfItem(v[keys[0]]) : null };
+        }
+        return { type: v === null ? 'null' : typeof v };
+      };
+      const shapeOfItem = (x) => {
+        if (!x || typeof x !== 'object') return typeof x;
+        const out = {};
+        for (const [k, val] of Object.entries(x).slice(0, 14)) {
+          out[k] = Array.isArray(val) ? `array(${val.length})` : val && typeof val === 'object' ? `object{${Object.keys(val).slice(0, 6).join(',')}}` : typeof val === 'string' ? `string(${val.slice(0, 40)})` : typeof val;
+        }
+        return out;
+      };
+      const top = Array.isArray(packInfos) ? packInfos : [packInfos];
+      return {
+        packInfos: Array.isArray(packInfos) ? `array(${packInfos.length})` : shape(packInfos).type,
+        packs: top.slice(0, maxPacks).map((p) =>
+          p && typeof p === 'object'
+            ? { id: String(p.id).slice(0, 60), name: p.optionalName, keys: Object.keys(p), tiles: shape(p.tiles), props: shape(p.props) }
+            : { type: typeof p },
+        ),
+      };
     }
 
     // Reads every loaded content pack through the Symbiote API:
@@ -462,6 +518,7 @@
     function packInfoList(v) {
       if (Array.isArray(v)) return v.filter((p) => p && typeof p === 'object');
       if (v && typeof v === 'object' && (v.tiles || v.props)) return [v];
+      if (v && typeof v === 'object' && Array.isArray(v.$values)) return packInfoList(v.$values);
       throw new Error(`TaleSpire sent unexpected pack details (${describeValue(v)})`);
     }
 
@@ -663,7 +720,7 @@
       return true;
     }
 
-    return { CATALOG_FORMAT, CATALOG_VERSION, normalizeName, makeAsset, assetsFromIndexJson, inferBoundsScale, assetsFromContentPacks, readContentPacks, Catalog, matchesQuery };
+    return { CATALOG_FORMAT, CATALOG_VERSION, normalizeName, makeAsset, assetsFromIndexJson, inferBoundsScale, assetsFromContentPacks, listOf, describePackShapes, readContentPacks, Catalog, matchesQuery };
   })();
   // ---- geometry.js ----
   __m['geometry'] = (function () {
@@ -5098,7 +5155,7 @@
     // window.TaleForge.
 
     const { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes } = __m['slab'];
-    const { Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, CATALOG_FORMAT } = __m['catalog'];
+    const { Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, CATALOG_FORMAT } = __m['catalog'];
     const { placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER } = __m['geometry'];
     const { Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport } = __m['kit'];
     const { PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS } = __m['plan'];
@@ -5116,7 +5173,7 @@
     const { decodePng, encodePng, sniffImageType } = __m['png'];
     const { demoCatalog } = __m['demo-catalog'];
     const { probePlan, facingProbe } = __m['probe'];
-    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
+    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
   })();
   global.TaleForge = __m['index'];
 })(typeof window !== 'undefined' ? window : globalThis);

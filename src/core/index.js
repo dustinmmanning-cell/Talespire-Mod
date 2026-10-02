@@ -5,7 +5,7 @@ export {
   SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary,
   guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes,
 } from './slab.js';
-export { Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, CATALOG_FORMAT } from './catalog.js';
+export { Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, CATALOG_FORMAT } from './catalog.js';
 export { placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER } from './geometry.js';
 export { Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport } from './kit.js';
 export { PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS } from './plan.js';

@@ -69,3 +69,34 @@ test('content packs: a single pack object instead of a list is accepted', async 
   const res = await readContentPacks({ getContentPacks: async () => [frag(p)], getMoreInfo: async () => p });
   assert.deepEqual(res.infos.map((x) => x.id), ['core']);
 });
+
+test('content packs: tiles and props in shapes other than an array still load', async () => {
+  const { assetsFromContentPacks, listOf, describePackShapes } = await import('../src/core/catalog.js');
+  const [a, b, c] = pack('p', 3).tiles;
+  // The shape that broke the first in-game test: an object where the docs say array.
+  const keyed = { id: 'keyed', tiles: { [a.id]: a, [b.id]: b }, props: { x: { ...c, id: undefined, name: 'Crate' } } };
+  assert.throws(() => { for (const t of keyed.tiles || []) t; }, /object is not iterable \(cannot read property Symbol\(Symbol\.iterator\)\)/);
+  const res = assetsFromContentPacks([keyed]);
+  assert.deepEqual(res.assets.map((x) => `${x.kind}:${x.name}`), ['tile:p floor 0', 'tile:p floor 1']);
+  // .NET wrappers, array-likes and single-array wrappers
+  assert.equal(listOf({ $id: '1', $values: [a, b] }).length, 2);
+  assert.equal(listOf({ 0: a, 1: b, length: 2 }).length, 2);
+  assert.equal(listOf({ count: 3, items: [a, b, c] }).length, 3);
+  assert.deepEqual(listOf('nope'), []);
+  assert.deepEqual(listOf(null), []);
+  // keyed by GUID without an id field: the key becomes the id
+  const guid = '01234567-89ab-cdef-0123-456789abcdef';
+  const noId = { ...a };
+  delete noId.id;
+  assert.equal(listOf({ [guid]: noId })[0].id, guid);
+  // tags as an object, a wrapper or a comma list
+  const tagged = assetsFromContentPacks([{ id: 't', tiles: [{ ...a, tags: { $values: ['Stone', 'Floor'] } }, { ...b, tags: 'wood, floor' }], props: [] }]);
+  assert.deepEqual(tagged.assets.map((x) => x.tags), [['stone', 'floor'], ['wood', 'floor']]);
+  // the diagnostics describe shapes, not contents
+  const d = describePackShapes([keyed]);
+  assert.equal(d.packInfos, 'array(1)');
+  assert.deepEqual(d.packs[0].tiles.type, 'object');
+  assert.equal(d.packs[0].tiles.keyCount, 2);
+  assert.equal(d.packs[0].tiles.first.colliderBoundsBound, 'object{center,width,height,depth}');
+  assert.ok(JSON.stringify(d).length < 2000);
+});

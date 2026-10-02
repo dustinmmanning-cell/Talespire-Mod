@@ -31,4 +31,4 @@ Furniture orientation is not documented by the game. Use **Settings > Probes** t
 
 ## Troubleshooting
 
-- **The badge at the top right says "assets unavailable".** The banner under it says why. Click the badge to try again. Asset packs that TaleSpire can't describe (usually ones added by mods) are skipped and listed on the **Kit** tab, so everything else still loads.
+- **The badge at the top right says "assets unavailable".** The banner under it says why. Click the badge to try again. Asset packs that TaleSpire can't describe (usually ones added by mods) are skipped and listed on the **Kit** tab, so everything else still loads. To report a problem, use **Kit > Copy pack diagnostics** and paste the result: it describes the shape of what TaleSpire sent, not your assets.

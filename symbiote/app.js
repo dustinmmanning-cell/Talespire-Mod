@@ -234,12 +234,26 @@ const tsPacks = {
   getMoreInfo: (frags) => tsCall(() => TS.contentPacks.getMoreInfo(frags)),
 };
 
+// What TaleSpire sent, in outline, for bug reports (Kit > Copy pack diagnostics).
+function packDiagnostics() {
+  return JSON.stringify({
+    taleforge: $('version').textContent,
+    inTaleSpire: state.inTS,
+    userAgent: navigator.userAgent,
+    catalogError: state.catalogError || null,
+    skippedPacks: state.skippedPacks || [],
+    assets: state.catalog ? state.catalog.size : 0,
+    shapes: state.packInfos ? TF.describePackShapes(state.packInfos) : null,
+  }, null, 1);
+}
+
 async function readCatalog() {
   const chip = $('catalog-status');
   chip.textContent = 'loading assets…';
   chip.className = 'chip';
   chip.title = 'Asset library';
   let skipped = [];
+  state.catalogError = null;
   try {
     if (state.inTS) {
       let res;
@@ -252,6 +266,7 @@ async function readCatalog() {
         res = await TF.readContentPacks(tsPacks, { log: debug });
       }
       skipped = res.skipped;
+      state.skippedPacks = skipped;
       state.packInfos = res.infos;
       state.catalog = TF.Catalog.fromContentPacks(res.infos);
       if (!state.catalog.size) throw new Error(`your ${res.infos.length} asset pack(s) contain no tiles or props`);
@@ -273,11 +288,12 @@ async function readCatalog() {
     fillAssetNames();
     renderKit();
   } catch (e) {
-    debug(`content packs: giving up: ${e.message}`);
+    debug(`content packs: giving up: ${e.stack || e.message}`);
+    state.catalogError = String((e && e.stack) || e).slice(0, 1500);
     chip.textContent = 'assets unavailable';
     chip.className = 'chip warn retry';
     chip.title = 'Click to try again';
-    banner('catalog', `Could not read your asset packs: ${e.message}\nClick "assets unavailable" at the top right to try again.`);
+    banner('catalog', `Could not read your asset packs: ${e.message}\nClick "assets unavailable" at the top right to try again. To report it, use Kit > Copy pack diagnostics.`);
   }
 }
 
@@ -1066,6 +1082,7 @@ function wireUi() {
     if (state.plan) await buildAndShow(state.plan, { remember: false });
     else renderKit();
   });
+  $('pack-diagnostics').addEventListener('click', () => copyText(packDiagnostics(), 'Pack diagnostics copied. Paste them to the developer.'));
   $('catalog-export').addEventListener('click', () => state.catalog && copyText(JSON.stringify(state.catalog.toJSON()), `Catalog copied (${state.catalog.size} assets). Save it as a .json file for the CLI.`));
   $('settings-save').addEventListener('click', onSaveSettings);
   $('provider').addEventListener('change', () => {

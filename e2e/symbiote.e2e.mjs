@@ -249,16 +249,29 @@ const assetCount = Number(chip.replace(/\D/g, ''));
 const modPack = { id: 'mod-pack', optionalName: 'Some Mod Pack', tiles: [], props: [], creatures: [], music: [], iconsAtlases: [] };
 const page2 = await browser.newPage({ viewport: { width: 460, height: 900 } });
 page2.on('pageerror', (e) => errors.push(e.message));
-await page2.addInitScript(fakeTs, { packs: [...contentPacks(), modPack], opts: { badPack: 'mod-pack' } });
+// and a pack whose tiles arrive as an object keyed by id, not an array (what
+// broke the first in-game test with "object is not iterable")
+const keyedTile = (n) => ({
+  id: `aaaaaaaa-0000-4000-8000-00000000000${n}`, name: `Keyed Floor ${n}`, isDeprecated: false, groupTag: 'Floors', tags: ['floor'],
+  colliderBoundsBound: { center: { x: 1, y: 0.25, z: 1 }, width: 2, height: 0.5, depth: 2 },
+});
+const keyedPack = { id: 'keyed-pack', optionalName: 'Keyed Pack', tiles: Object.fromEntries([1, 2].map((n) => [keyedTile(n).id, keyedTile(n)])), props: {}, creatures: [], music: [], iconsAtlases: [] };
+await page2.addInitScript(fakeTs, { packs: [...contentPacks(), modPack, keyedPack], opts: { badPack: 'mod-pack' } });
 await page2.goto('file://' + join(root, 'symbiote/index.html'));
 await page2.evaluate(() => window.handleStateChange({ kind: 'hasInitialized', payload: {} }));
 await page2.waitForFunction(() => /assets$/.test(document.getElementById('catalog-status').textContent));
-assert.equal(await page2.textContent('#catalog-status'), `${assetCount} assets`);
+assert.equal(await page2.textContent('#catalog-status'), `${assetCount + 2} assets`);
 assert.match(await page2.getAttribute('#catalog-status', 'title'), /Skipped: Some Mod Pack/);
 assert.ok(!(await page2.textContent('#banner')).includes('Could not read'));
 await page2.click('[data-tab="kit"]');
 assert.match(await page2.textContent('#kit-skipped'), /couldn't describe 1 asset pack\(s\).*Some Mod Pack \(TaleSpire: internalError\)/);
-assert.equal(await page2.evaluate(() => window.__moreInfoCalls), 3, 'all packs at once, then one by one');
+assert.equal(await page2.evaluate(() => window.__moreInfoCalls), 4, 'all packs at once, then one by one');
+await page2.click('#pack-diagnostics');
+const diag = JSON.parse(await page2.evaluate(() => window.__clip.at(-1)));
+assert.equal(diag.assets, assetCount + 2);
+assert.deepEqual(diag.skippedPacks, [{ name: 'Some Mod Pack', error: 'TaleSpire: internalError' }]);
+assert.equal(diag.shapes.packs.find((x) => x.id === 'keyed-pack').tiles.type, 'object');
+assert.ok(JSON.stringify(diag).length < 6000, 'diagnostics stay short enough to paste');
 await page2.close();
 
 // Packs not readable at start-up: a clear error, then the badge retries.
