@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TaleForge</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="taleforge.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="icon64.png" alt="" width="28" height="28">
+      <span class="name">TaleForge</span>
+    </div>
+    <span id="catalog-status" class="chip" title="Asset library">loading assets…</span>
+  </header>
+  <div id="banner" class="banner hidden" role="status"></div>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="create" aria-selected="true">Create</button>
+    <button role="tab" data-tab="trace">Trace</button>
+    <button role="tab" data-tab="result">Result</button>
+    <button role="tab" data-tab="kit">Kit</button>
+    <button role="tab" data-tab="settings">Settings</button>
+  </nav>
+
+  <!-- CREATE -->
+  <section id="tab-create" class="tab" role="tabpanel">
+    <label class="field">
+      <span>Describe what to build</span>
+      <textarea id="prompt" rows="5" placeholder="A smugglers' cove: a sea cave with a hidden dock, a rope bridge over a chasm, and a lookout room carved into the cliff."></textarea>
+    </label>
+    <div class="examples" id="examples"></div>
+    <div class="row">
+      <label class="field grow">
+        <span>Size</span>
+        <select id="size">
+          <option value="auto">Let Claude choose</option>
+          <option value="room">Room (16×16)</option>
+          <option value="building">Building (28×24)</option>
+          <option value="compound">Compound (40×32)</option>
+          <option value="village">Village (64×48)</option>
+          <option value="town">Town (110×90)</option>
+          <option value="custom">Custom…</option>
+        </select>
+      </label>
+      <label class="field grow">
+        <span>Style</span>
+        <select id="style"><option value="">Auto</option></select>
+      </label>
+    </div>
+    <div class="row hidden" id="custom-size">
+      <label class="field grow"><span>Width (tiles)</span><input id="size-w" type="number" min="4" max="240" value="40"></label>
+      <label class="field grow"><span>Height (tiles)</span><input id="size-h" type="number" min="4" max="240" value="30"></label>
+    </div>
+
+    <div class="drop" id="image-drop" tabindex="0">
+      <input id="image-file" type="file" accept="image/*" hidden>
+      <div class="drop-empty" id="image-empty">
+        <span class="ts-icon-image ts-icon-small" aria-hidden="true"></span>
+        Reference image (optional): drop, paste or <button class="link" id="image-pick">browse</button>
+      </div>
+      <div class="drop-full hidden" id="image-full">
+        <img id="image-thumb" alt="Reference image">
+        <div class="drop-side">
+          <label class="radio"><input type="radio" name="image-mode" value="reference" checked> Mood reference</label>
+          <label class="radio"><input type="radio" name="image-mode" value="layout"> Reproduce layout</label>
+          <button class="link danger" id="image-clear">Remove</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="generate">Generate</button>
+      <button class="hidden" id="cancel">Cancel</button>
+    </div>
+    <div id="progress" class="progress hidden" aria-live="polite"><span class="spinner"></span><span id="progress-text"></span></div>
+    <div id="create-error" class="error hidden" role="alert"></div>
+
+    <details class="history">
+      <summary>Recent builds</summary>
+      <ul id="history"></ul>
+    </details>
+  </section>
+
+  <!-- TRACE -->
+  <section id="tab-trace" class="tab hidden" role="tabpanel">
+    <p class="hint">Turn a top-down map image (a battle map, dungeon map or town map) into a build, tile by tile.</p>
+    <div class="drop" id="trace-drop" tabindex="0">
+      <input id="trace-file" type="file" accept="image/*" hidden>
+      <div class="drop-empty" id="trace-empty">Map image: drop, paste or <button class="link" id="trace-pick">browse</button></div>
+      <div class="drop-full hidden" id="trace-full"><img id="trace-thumb" alt="Map to trace"></div>
+    </div>
+    <div class="row">
+      <label class="field grow"><span>Tiles across</span><input id="trace-w" type="number" min="4" max="240" placeholder="auto"></label>
+      <label class="field grow"><span>Tiles down</span><input id="trace-h" type="number" min="4" max="240" placeholder="auto"></label>
+      <label class="field grow"><span>Colours</span><input id="trace-colors" type="number" min="2" max="16" value="8"></label>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="trace-ai" checked> Let Claude label colours and count the grid</label>
+    </div>
+    <label class="field"><span>Notes for Claude (optional)</span><input id="trace-prompt" type="text" placeholder="e.g. the brown squares are wooden doors"></label>
+    <div class="actions">
+      <button class="primary" id="trace-run">Trace</button>
+    </div>
+    <div id="trace-progress" class="progress hidden"><span class="spinner"></span><span id="trace-progress-text"></span></div>
+    <div id="trace-error" class="error hidden" role="alert"></div>
+    <div id="trace-clusters" class="clusters hidden">
+      <h3>What each colour means</h3>
+      <table><tbody id="cluster-rows"></tbody></table>
+      <div class="actions"><button id="trace-apply">Rebuild with these labels</button></div>
+    </div>
+  </section>
+
+  <!-- RESULT -->
+  <section id="tab-result" class="tab hidden" role="tabpanel">
+    <div id="result-empty" class="empty">Nothing built yet. Describe something on <b>Create</b> or trace a map.</div>
+    <div id="result" class="hidden">
+      <h2 id="r-title"></h2>
+      <p id="r-summary" class="summary"></p>
+      <div id="r-preview" class="preview" title="Click to zoom"></div>
+      <p id="r-stats" class="muted"></p>
+
+      <div class="parts">
+        <h3 id="r-parts-title">Place it</h3>
+        <ol id="r-steps" class="steps"></ol>
+        <ul id="r-parts" class="part-list"></ul>
+        <button class="link hidden" id="r-multislab">Copy multi-slab JSON (for LordAshes' MultiPasteSlabsPlugin)</button>
+      </div>
+
+      <div class="refine">
+        <label class="field"><span>Change something</span>
+          <textarea id="refine-prompt" rows="2" placeholder="Add a stable east of the inn and make the river wider."></textarea>
+        </label>
+        <div class="actions">
+          <button class="primary" id="refine">Refine with Claude</button>
+          <button id="reseed" title="Same plan, different furniture and scatter">Reshuffle details</button>
+        </div>
+        <div id="refine-progress" class="progress hidden"><span class="spinner"></span><span id="refine-progress-text"></span></div>
+        <div id="refine-error" class="error hidden" role="alert"></div>
+      </div>
+
+      <details id="r-notes-box"><summary>GM notes</summary><p id="r-notes" class="notes"></p></details>
+      <details id="r-warn-box"><summary id="r-warn-title">Warnings</summary><ul id="r-warnings" class="warnings"></ul></details>
+      <details>
+        <summary>Plan JSON</summary>
+        <textarea id="plan-json" rows="12" spellcheck="false"></textarea>
+        <div class="actions">
+          <button id="plan-rebuild">Rebuild from JSON</button>
+          <button id="plan-copy">Copy</button>
+        </div>
+        <div id="plan-error" class="error hidden" role="alert"></div>
+      </details>
+    </div>
+  </section>
+
+  <!-- KIT -->
+  <section id="tab-kit" class="tab hidden" role="tabpanel">
+    <p class="hint">Which of your assets TaleForge uses for each role. Type an exact asset name to override a role; overrides are saved.</p>
+    <div class="row">
+      <label class="field grow"><span>Show roles for style</span><select id="kit-style"></select></label>
+    </div>
+    <ul id="kit-list" class="kit-list"></ul>
+    <datalist id="asset-names"></datalist>
+    <div class="actions">
+      <button id="kit-reset">Clear overrides</button>
+      <button id="catalog-export" title="Copies your asset catalog as JSON for the TaleForge command-line tool">Copy catalog JSON</button>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-settings" class="tab hidden" role="tabpanel">
+    <label class="field"><span>Anthropic API key</span>
+      <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-…">
+    </label>
+    <p class="hint">Stored only in this Symbiote's folder on this computer and sent only to the API. Using the CLI proxy instead? Set the base URL below and type <code>proxy</code> as the key.</p>
+    <div class="row">
+      <label class="field grow"><span>Model</span>
+        <select id="model">
+          <option value="claude-opus-5-5">Claude Opus 5.5 (best)</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (faster)</option>
+          <option value="claude-fable-5-1">Claude Fable 5.1 (most capable)</option>
+          <option value="claude-haiku-4-5">Claude Haiku 4.5 (cheapest)</option>
+        </select>
+      </label>
+      <label class="field grow"><span>Effort</span>
+        <select id="effort">
+          <option value="medium">Medium</option>
+          <option value="high" selected>High</option>
+          <option value="xhigh">Extra high</option>
+        </select>
+      </label>
+    </div>
+    <label class="field"><span>API base URL</span><input id="base-url" type="url" placeholder="https://api.anthropic.com"></label>
+    <div class="row">
+      <label class="field grow"><span>Furniture facing</span>
+        <select id="facing">
+          <option value="0">0° (default)</option>
+          <option value="6">90°</option>
+          <option value="12">180°</option>
+          <option value="18">270°</option>
+        </select>
+      </label>
+    </div>
+    <div class="actions"><button class="primary" id="settings-save">Save settings</button><span id="settings-saved" class="muted hidden">Saved.</span></div>
+
+    <h3>Probes</h3>
+    <p class="hint">Small test builds for checking conventions in your game: walls flush at corners, roofs, and which furniture facing looks right (left to right: 0°, 90°, 180°, 270°, marked by one to four stones).</p>
+    <div class="actions wrap">
+      <button data-probe="house">Cottage</button>
+      <button data-probe="tower">Tower</button>
+      <button data-probe="facing">Furniture facing</button>
+    </div>
+    <div id="probe-error" class="error hidden" role="alert"></div>
+    <p class="muted small">TaleForge <span id="version"></span>. Slab format v2. Builds use only the assets your TaleSpire has loaded.</p>
+  </section>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <div id="zoom" class="zoom hidden"><div id="zoom-inner"></div></div>
+</body>
+</html>

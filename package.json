@@ -12,7 +12,16 @@
   },
   "scripts": {
     "test": "node --test",
+    "test:e2e": "node e2e/symbiote.e2e.mjs",
     "bundle": "node scripts/bundle.js",
     "check-bundle": "node scripts/bundle.js --check"
-  }
+  },
+  "files": [
+    "src",
+    "symbiote",
+    "examples",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ]
 }

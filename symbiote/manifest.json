@@ -1,0 +1,36 @@
+{
+  "manifestVersion": 1,
+  "name": "TaleForge",
+  "summary": "AI board builder: describe a place or show it a map, and get it built from your own tiles and props, ready to place.",
+  "descriptionFilePath": "/README.md",
+  "entryPoint": "/index.html",
+  "version": "0.1.0",
+  "license": "MIT",
+  "about": {
+    "website": "https://github.com/dustinmmanning-cell/Talespire-Mod",
+    "authors": ["TaleForge contributors"]
+  },
+  "api": {
+    "version": "0.1",
+    "initTimeout": 10,
+    "subscriptions": {
+      "symbiote": {
+        "onStateChangeEvent": "handleStateChange"
+      },
+      "contentPacks": {
+        "onContentPackChange": "handleContentPackChange"
+      }
+    }
+  },
+  "controls": {
+    "reload": true
+  },
+  "icons": {
+    "64x64": "/icon64.png"
+  },
+  "environment": {
+    "webViewBackgroundColor": "#1c1b22",
+    "capabilities": ["runInBackground"],
+    "extras": ["colorStyles", "fonts", "icons"]
+  }
+}
