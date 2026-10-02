@@ -1493,7 +1493,15 @@
       if (!Number.isFinite(n)) return dflt;
       return Math.max(lo, Math.min(hi, n));
     };
-    const pick = (v, allowed, dflt) => (allowed.includes(v) ? v : dflt);
+    // Exact value, or a near miss ("Stone Floor", "barrels", "wood-floor") of one;
+    // otherwise the default. Some providers get these fields as free text.
+    const pick = (v, allowed, dflt) => {
+      if (allowed.includes(v)) return v;
+      if (typeof v !== 'string') return dflt;
+      const c = v.trim().toLowerCase().replace(/[\s-]+/g, '_');
+      for (const cand of [c, c.replace(/es$/, ''), c.replace(/s$/, '')]) if (allowed.includes(cand)) return cand;
+      return dflt;
+    };
     const text = (v, dflt = '') => (typeof v === 'string' ? v.slice(0, 2000) : dflt);
     const arr = (v) => (Array.isArray(v) ? v : []);
 
@@ -3809,6 +3817,31 @@
     //   apiKey, baseUrl, model, system (string), messages, schema (JSON schema for
     //   structured output), effort ('low'..'max'), maxTokens, fallbacks (bool),
     //   onProgress, signal, fetchImpl (for tests)
+    // Structured outputs compile the JSON schema into a grammar, and the API
+    // refuses grammars it considers too large ("The compiled grammar is too
+    // large..."). Long enums are what make ours large: the plan schema has two
+    // 69-value prop-role lists, and every surface or kind list is repeated. So
+    // for Anthropic, enums longer than maxEnum become plain strings with the
+    // allowed values in the description (the plan normalizer maps near misses
+    // and falls back to defaults). Each step down is used only if the API still
+    // rejects the grammar: compact -> no enums -> no schema at all.
+    const SCHEMA_STEPS = [{ mode: 'compact', maxEnum: 12 }, { mode: 'no-enums', maxEnum: 0 }, { mode: 'none' }];
+
+    function  compactSchema(schema, maxEnum) {
+      if (Array.isArray(schema)) return schema.map((x) => compactSchema(x, maxEnum));
+      if (!schema || typeof schema !== 'object') return schema;
+      if (Array.isArray(schema.enum) && schema.enum.length > maxEnum) {
+        const { enum: values, ...rest } = schema;
+        const lead = rest.description ? `${rest.description.replace(/[.\s]+$/, '')}. ` : '';
+        return { ...rest, type: 'string', description: `${lead}One of: ${values.join(', ')}` };
+      }
+      const out = {};
+      for (const [k, v] of Object.entries(schema)) out[k] = compactSchema(v, maxEnum);
+      return out;
+    }
+
+    const isGrammarError = (status, message) => status === 400 && /grammar|schema is too (large|complex)|too complex/i.test(message || '');
+
     async function  callClaude({
       apiKey, baseUrl = 'https://api.anthropic.com', model = DEFAULT_MODEL, system, messages, schema,
       effort = 'high', maxTokens = 64000, fallbacks = true, onProgress, signal, fetchImpl, retries = 2, extraHeaders = {},
@@ -3829,14 +3862,24 @@
       // except to api.anthropic.com.
       if (isBrowser()) headers['anthropic-dangerous-direct-browser-access'] = 'true';
 
+      let step = 0;
       const body = {
         model,
         max_tokens: lite ? Math.min(maxTokens, 64000) : maxTokens,
         stream: true,
-        output_config: { ...(lite ? {} : { effort }), ...(schema ? { format: { type: 'json_schema', schema } } : {}) },
-        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+        output_config: {},
+        system: [],
         messages,
       };
+      const applySchemaStep = () => {
+        const st = SCHEMA_STEPS[step];
+        body.output_config = { ...(lite ? {} : { effort }) };
+        let sys = system;
+        if (schema && st.mode !== 'none') body.output_config.format = { type: 'json_schema', schema: compactSchema(schema, st.maxEnum) };
+        else if (schema) sys = `${system}\n\n# Output\nReply with one JSON object and nothing else: no prose, no code fences. It must match this JSON Schema:\n${JSON.stringify(schema)}`;
+        body.system = [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }];
+      };
+      applySchemaStep();
       if (!lite) body.thinking = { type: 'adaptive' };
       if (fallbacks && !lite) body.fallbacks = 'default';
 
@@ -3865,6 +3908,12 @@
           const type = (err.error && err.error.type) || `http_${res.status}`;
           const message = (err.error && err.error.message) || `HTTP ${res.status}`;
           const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
+          if (schema && isGrammarError(res.status, message) && step < SCHEMA_STEPS.length - 1) {
+            step++;
+            applySchemaStep();
+            attempt--;
+            continue;
+          }
           if (retryable && attempt <= retries) {
             const after = Number(res.headers.get && res.headers.get('retry-after'));
             await sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 2000 * attempt);
@@ -3880,6 +3929,7 @@
           if (out.stopReason === 'max_tokens') {
             throw new ClaudeError('The plan was too long to finish. Ask for a smaller area or fewer details.', { type: 'max_tokens' });
           }
+          out.schemaMode = schema ? SCHEMA_STEPS[step].mode : null;
           return out;
         } catch (e) {
           if (e instanceof ClaudeError && e.retryable && attempt <= retries) {
@@ -3901,7 +3951,7 @@
       return `Claude API error (${type}): ${message}`;
     }
 
-    return { DEFAULT_MODEL, API_VERSION, FALLBACK_BETA, ClaudeError, collectStream, callClaude };
+    return { DEFAULT_MODEL, API_VERSION, FALLBACK_BETA, ClaudeError, collectStream, SCHEMA_STEPS, compactSchema, callClaude };
   })();
   // ---- openai.js ----
   __m['openai'] = (function () {
@@ -4269,7 +4319,7 @@
       const out = await call({ ...opts, model, baseUrl: opts.baseUrl || info.baseUrl });
       const served = out.model || model;
       const usage = normalizeUsage(provider, out.usage);
-      return { text: out.text, provider, model: served, requestedModel: model, usage, usageRaw: out.usage, cost: costOf(served, usage) };
+      return { text: out.text, provider, model: served, requestedModel: model, usage, usageRaw: out.usage, cost: costOf(served, usage), schemaMode: out.schemaMode || null };
     }
 
     return { callModel };
@@ -4773,7 +4823,7 @@
       });
       const raw = parseJsonText(out.text);
       const { plan, warnings } = normalizePlan(raw);
-      return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, raw };
+      return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, schemaMode: out.schemaMode, raw };
     }
 
     // ---- trace mode: label colour clusters of a traced map image ----------------
@@ -5308,7 +5358,7 @@
     const { chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET } = __m['chunk'];
     const { renderPreviewSvg, MATERIAL_COLORS } = __m['preview'];
     const { buildSlabs, textReport, markerTile, PASTE_HELP } = __m['build'];
-    const { callClaude, collectStream, ClaudeError, DEFAULT_MODEL } = __m['claude'];
+    const { callClaude, collectStream, ClaudeError, DEFAULT_MODEL, compactSchema, SCHEMA_STEPS } = __m['claude'];
     const { ApiError, readSse, parseJsonText } = __m['http'];
     const { callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL } = __m['openai'];
     const { callModel } = __m['ai'];
@@ -5318,7 +5368,7 @@
     const { decodePng, encodePng, sniffImageType } = __m['png'];
     const { demoCatalog } = __m['demo-catalog'];
     const { probePlan, facingProbe } = __m['probe'];
-    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
+    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, compactSchema, SCHEMA_STEPS, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
   })();
   global.TaleForge = __m['index'];
 })(typeof window !== 'undefined' ? window : globalThis);

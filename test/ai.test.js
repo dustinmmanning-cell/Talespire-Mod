@@ -5,7 +5,7 @@ import { callClaude, collectStream, ClaudeError, FALLBACK_BETA } from '../src/co
 import { generatePlan, buildUserContent, systemPrompt, labelTrace, remapTraceLabels } from '../src/core/planner.js';
 import { traceImage, heuristicLabels, traceToPlan, autoGridSize } from '../src/core/trace.js';
 import { encodePng, decodePng } from '../src/core/png.js';
-import { normalizePlan } from '../src/core/plan.js';
+import { normalizePlan, PLAN_SCHEMA } from '../src/core/plan.js';
 import { compilePlan } from '../src/core/compile.js';
 import { Kit } from '../src/core/kit.js';
 import { demoCatalog } from '../src/core/demo-catalog.js';
@@ -79,6 +79,48 @@ test('request shape: model, streaming, structured output, adaptive thinking, fal
   assert.equal(res.usage.outputTokens, 4321);
   // Opus 5.5: 1200 in x $4/M + 4321 out x $20/M
   assert.ok(Math.abs(res.cost - (1200 * 4 + 4321 * 20) / 1e6) < 1e-9);
+});
+
+// What the first Anthropic call in TaleSpire hit: "The compiled grammar is too
+// large, which would cause performance issues."
+const GRAMMAR_ERROR = { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'The compiled grammar is too large, which would cause performance issues. Simplify your tool schemas or reduce the number of strict tools.' } } };
+const enumCount = (schema) => (JSON.stringify(schema).match(/"enum":\[[^\]]*\]/g) || []).reduce((n, e) => n + e.split(',').length, 0);
+
+test('anthropic: long enums are sent as described strings; the plan still normalizes', async () => {
+  const calls = [];
+  const res = await generatePlan({ apiKey: 'k', prompt: 'a tavern', fetchImpl: fakeFetch([{ events: messageEvents(JSON.stringify(tavern)) }], calls) });
+  const sent = calls[0].body.output_config.format.schema;
+  assert.ok(enumCount(sent) < 60, `enum values sent: ${enumCount(sent)} (full schema: ${enumCount(PLAN_SCHEMA)})`);
+  const role = sent.properties.props.items.properties.role;
+  assert.equal(role.type, 'string');
+  assert.ok(!role.enum);
+  assert.match(role.description, /One of: tree, conifer, .*instrument, other$/);
+  assert.deepEqual(sent.properties.structures.items.properties.roof.enum, ['pitched', 'flat', 'none'], 'short enums stay');
+  assert.equal(res.schemaMode, 'compact');
+  // free-text near misses map onto the allowed values
+  const loose = normalizePlan({ ...tavern, ground: 'Cobble Stone', props: [{ role: 'Barrels', asset: '', x: 2, y: 2, rotation: 0 }, { role: 'wine-rack', asset: '', x: 3, y: 3, rotation: 0 }] }).plan;
+  assert.deepEqual(loose.props.map((p) => p.role), ['barrel', 'other']);
+});
+
+test('anthropic: a grammar-too-large error steps down to no enums, then to no schema', async () => {
+  const calls = [];
+  const fetchImpl = fakeFetch([GRAMMAR_ERROR, GRAMMAR_ERROR, { events: messageEvents(JSON.stringify(tavern)) }], calls);
+  const res = await generatePlan({ apiKey: 'k', prompt: 'a tavern', fetchImpl });
+  assert.equal(calls.length, 3);
+  assert.ok(calls[0].body.output_config.format && enumCount(calls[0].body.output_config.format.schema) > 0);
+  assert.equal(enumCount(calls[1].body.output_config.format.schema), 0);
+  assert.ok(!calls[2].body.output_config.format, 'last resort: no structured output');
+  assert.equal(calls[2].body.output_config.effort, 'high');
+  assert.match(calls[2].body.system[0].text, /Reply with one JSON object and nothing else[\s\S]*"structures"/);
+  assert.equal(res.plan.title, 'The Prancing Gryphon');
+  assert.equal(res.schemaMode, 'none');
+});
+
+test('anthropic: other 400 errors are not retried with a smaller schema', async () => {
+  const calls = [];
+  const bad = { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens: too large' } } };
+  await assert.rejects(generatePlan({ apiKey: 'k', prompt: 'x', fetchImpl: fakeFetch([bad], calls) }), /max_tokens: too large/);
+  assert.equal(calls.length, 1);
 });
 
 test('haiku requests omit thinking, effort and fallbacks', async () => {

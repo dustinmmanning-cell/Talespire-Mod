@@ -127,7 +127,7 @@ Both providers get the same prompts, the same schemas, and images no larger than
 
 - defaults to **`claude-opus-5-5`**; Sonnet 5.5, Fable 5.1 and Haiku 4.5 are also listed
 - streams, since plans can be long
-- uses **structured outputs** (`output_config.format` with the JSON schema), so every response parses
+- uses **structured outputs** (`output_config.format` with the JSON schema), so every response parses. Anthropic compiles the schema into a grammar and rejects large ones ("The compiled grammar is too large"); the full plan schema has 324 enum values. So enums longer than 12 values go as plain strings, with the allowed values listed in the description, which leaves 44 enum values. The plan normalizer maps near misses ("Barrels" to `barrel`) and falls back to defaults. If the API still rejects the grammar, the client retries with no enums, then with no schema at all, with the schema written into the system prompt instead.
 - uses **adaptive thinking**, with `effort: high` by default; the Symbiote offers medium, high and extra high
 - enables **server-side fallbacks** (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`). If the model declines, the API retries on its recommended fallback model, and any text streamed before the switch is discarded.
 - marks the stable system prompt with `cache_control`, including the GM's prop-name list, so repeat generations are cheaper
@@ -183,14 +183,14 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 ## Testing
 
-- `npm test`: 64 unit tests, covering:
+- `npm test`: 67 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - reading asset packs through the Symbiote API: skipping packs TaleSpire cannot describe, and accepting pack contents in shapes other than the documented arrays
   - kit resolution
   - compiler guarantees: walls, doors, reachability, open-plan dungeons, open rooms and nested buildings, roofs, fortifications, no prop overlaps, floors on the grid, determinism
   - chunking and registration
-  - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, refusals, retries, quota errors, usage and cost
+  - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, schema step-down on grammar-size errors, refusals, retries, quota errors, usage and cost
   - the plan and trace schemas against OpenAI's strict-mode rules
   - tracing, the PNG codec, and the bundle
 - `npm run test:e2e`: the real Symbiote in Chromium (Playwright) with a fake `TS` API and fake Anthropic and OpenAI endpoints, from prompt to a decodable slab in the GM's hand, plus screenshots. It also switches provider and model in Settings and checks the cost labels, the request sent to each API, and the cost shown on the result.

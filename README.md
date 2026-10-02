@@ -106,7 +106,7 @@ The CLI uses whichever API key is set (Anthropic if both are), unless you pass `
 ## Develop
 
 ```bash
-npm test             # 64 unit tests, no dependencies
+npm test             # 67 unit tests, no dependencies
 npm run test:e2e     # the Symbiote in Chromium with fake TaleSpire, Anthropic and OpenAI APIs (needs Playwright)
 npm run test:live    # real API calls: needs ANTHROPIC_API_KEY or OPENAI_API_KEY, spends real money (capped, default $1.50)
 npm run test:live -- --provider openai --model gpt-6.1-sol   # pick the provider and model

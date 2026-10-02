@@ -574,7 +574,7 @@ async function onGenerate() {
       signal: state.abort.signal,
     });
     state.seed = 1;
-    debug(`plan from ${res.model}: ${res.usage.outputTokens} output tokens, ${TF.formatCost(res.cost)}`);
+    debug(`plan from ${res.model}: ${res.usage.outputTokens} output tokens, ${TF.formatCost(res.cost)}${res.schemaMode ? `, schema ${res.schemaMode}` : ''}`);
     recordUsage(res);
     await buildAndShow(res.plan, { warnings: res.warnings, ai: aiInfo(res, 'Generated') });
   } catch (e) {

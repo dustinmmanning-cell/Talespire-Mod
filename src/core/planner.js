@@ -124,7 +124,7 @@ export async function generatePlan(opts) {
   });
   const raw = parseJsonText(out.text);
   const { plan, warnings } = normalizePlan(raw);
-  return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, raw };
+  return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, schemaMode: out.schemaMode, raw };
 }
 
 // ---- trace mode: label colour clusters of a traced map image ----------------

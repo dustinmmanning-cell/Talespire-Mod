@@ -17,5 +17,5 @@ export async function callModel(opts) {
   const out = await call({ ...opts, model, baseUrl: opts.baseUrl || info.baseUrl });
   const served = out.model || model;
   const usage = normalizeUsage(provider, out.usage);
-  return { text: out.text, provider, model: served, requestedModel: model, usage, usageRaw: out.usage, cost: costOf(served, usage) };
+  return { text: out.text, provider, model: served, requestedModel: model, usage, usageRaw: out.usage, cost: costOf(served, usage), schemaMode: out.schemaMode || null };
 }

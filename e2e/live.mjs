@@ -59,7 +59,7 @@ function record(step, res, extra = {}) {
   spent += c;
   const u = res.usage;
   log.push({ step, model: res.model, usage: u, cost: Number(c.toFixed(4)), ...extra });
-  console.log(`  ${step}: ${res.model}, ${u.inputTokens} in + ${u.cachedInputTokens} cached / ${u.outputTokens} out (${u.reasoningTokens} reasoning), ${formatCost(res.cost)} (total ${formatCost(spent)})`);
+  console.log(`  ${step}: ${res.model}, ${u.inputTokens} in + ${u.cachedInputTokens} cached / ${u.outputTokens} out (${u.reasoningTokens} reasoning), ${formatCost(res.cost)} (total ${formatCost(spent)})${res.schemaMode ? `, schema ${res.schemaMode}` : ''}`);
   if (spent > cap) throw new Error(`cost cap $${cap} reached`);
 }
 const progress = (step) => {

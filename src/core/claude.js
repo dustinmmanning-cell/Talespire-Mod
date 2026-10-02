@@ -91,6 +91,31 @@ export async function collectStream(body, onProgress) {
 //   apiKey, baseUrl, model, system (string), messages, schema (JSON schema for
 //   structured output), effort ('low'..'max'), maxTokens, fallbacks (bool),
 //   onProgress, signal, fetchImpl (for tests)
+// Structured outputs compile the JSON schema into a grammar, and the API
+// refuses grammars it considers too large ("The compiled grammar is too
+// large..."). Long enums are what make ours large: the plan schema has two
+// 69-value prop-role lists, and every surface or kind list is repeated. So
+// for Anthropic, enums longer than maxEnum become plain strings with the
+// allowed values in the description (the plan normalizer maps near misses
+// and falls back to defaults). Each step down is used only if the API still
+// rejects the grammar: compact -> no enums -> no schema at all.
+export const SCHEMA_STEPS = [{ mode: 'compact', maxEnum: 12 }, { mode: 'no-enums', maxEnum: 0 }, { mode: 'none' }];
+
+export function compactSchema(schema, maxEnum) {
+  if (Array.isArray(schema)) return schema.map((x) => compactSchema(x, maxEnum));
+  if (!schema || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema.enum) && schema.enum.length > maxEnum) {
+    const { enum: values, ...rest } = schema;
+    const lead = rest.description ? `${rest.description.replace(/[.\s]+$/, '')}. ` : '';
+    return { ...rest, type: 'string', description: `${lead}One of: ${values.join(', ')}` };
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(schema)) out[k] = compactSchema(v, maxEnum);
+  return out;
+}
+
+const isGrammarError = (status, message) => status === 400 && /grammar|schema is too (large|complex)|too complex/i.test(message || '');
+
 export async function callClaude({
   apiKey, baseUrl = 'https://api.anthropic.com', model = DEFAULT_MODEL, system, messages, schema,
   effort = 'high', maxTokens = 64000, fallbacks = true, onProgress, signal, fetchImpl, retries = 2, extraHeaders = {},
@@ -111,14 +136,24 @@ export async function callClaude({
   // except to api.anthropic.com.
   if (isBrowser()) headers['anthropic-dangerous-direct-browser-access'] = 'true';
 
+  let step = 0;
   const body = {
     model,
     max_tokens: lite ? Math.min(maxTokens, 64000) : maxTokens,
     stream: true,
-    output_config: { ...(lite ? {} : { effort }), ...(schema ? { format: { type: 'json_schema', schema } } : {}) },
-    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    output_config: {},
+    system: [],
     messages,
   };
+  const applySchemaStep = () => {
+    const st = SCHEMA_STEPS[step];
+    body.output_config = { ...(lite ? {} : { effort }) };
+    let sys = system;
+    if (schema && st.mode !== 'none') body.output_config.format = { type: 'json_schema', schema: compactSchema(schema, st.maxEnum) };
+    else if (schema) sys = `${system}\n\n# Output\nReply with one JSON object and nothing else: no prose, no code fences. It must match this JSON Schema:\n${JSON.stringify(schema)}`;
+    body.system = [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }];
+  };
+  applySchemaStep();
   if (!lite) body.thinking = { type: 'adaptive' };
   if (fallbacks && !lite) body.fallbacks = 'default';
 
@@ -147,6 +182,12 @@ export async function callClaude({
       const type = (err.error && err.error.type) || `http_${res.status}`;
       const message = (err.error && err.error.message) || `HTTP ${res.status}`;
       const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
+      if (schema && isGrammarError(res.status, message) && step < SCHEMA_STEPS.length - 1) {
+        step++;
+        applySchemaStep();
+        attempt--;
+        continue;
+      }
       if (retryable && attempt <= retries) {
         const after = Number(res.headers.get && res.headers.get('retry-after'));
         await sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 2000 * attempt);
@@ -162,6 +203,7 @@ export async function callClaude({
       if (out.stopReason === 'max_tokens') {
         throw new ClaudeError('The plan was too long to finish. Ask for a smaller area or fewer details.', { type: 'max_tokens' });
       }
+      out.schemaMode = schema ? SCHEMA_STEPS[step].mode : null;
       return out;
     } catch (e) {
       if (e instanceof ClaudeError && e.retryable && attempt <= retries) {

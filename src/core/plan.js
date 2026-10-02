@@ -166,7 +166,15 @@ const clampNum = (v, lo, hi, dflt) => {
   if (!Number.isFinite(n)) return dflt;
   return Math.max(lo, Math.min(hi, n));
 };
-const pick = (v, allowed, dflt) => (allowed.includes(v) ? v : dflt);
+// Exact value, or a near miss ("Stone Floor", "barrels", "wood-floor") of one;
+// otherwise the default. Some providers get these fields as free text.
+const pick = (v, allowed, dflt) => {
+  if (allowed.includes(v)) return v;
+  if (typeof v !== 'string') return dflt;
+  const c = v.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  for (const cand of [c, c.replace(/es$/, ''), c.replace(/s$/, '')]) if (allowed.includes(cand)) return cand;
+  return dflt;
+};
 const text = (v, dflt = '') => (typeof v === 'string' ? v.slice(0, 2000) : dflt);
 const arr = (v) => (Array.isArray(v) ? v : []);
 
