@@ -25,7 +25,7 @@ export const STRUCTURE_KINDS = [
 export const ROOM_KINDS = [
   'common', 'bar', 'kitchen', 'bedroom', 'dormitory', 'storage', 'cellar', 'shop', 'workshop', 'forge', 'shrine',
   'chapel', 'library', 'study', 'throne', 'hall', 'dining', 'armory', 'barracks', 'treasury', 'prison', 'crypt',
-  'corridor', 'stable', 'lair', 'cavern', 'empty', 'other',
+  'corridor', 'stable', 'lair', 'cavern', 'stage', 'empty', 'other',
 ];
 export const ROOF_KINDS = ['pitched', 'flat', 'none'];
 export const FURNISH_LEVELS = ['none', 'sparse', 'normal', 'dense'];
@@ -95,8 +95,13 @@ export const PLAN_SCHEMA = obj({
       },
       rooms: {
         type: 'array',
-        description: 'named rooms inside the footprint (may be empty). With interiorWalls true, walls separate rooms.',
-        items: obj({ label: str('room name'), kind: en(ROOM_KINDS, 'room purpose; drives furniture'), ...rectProps }),
+        description: 'named rooms inside the footprint (may be empty). With interiorWalls true, walls separate rooms, except around open rooms.',
+        items: obj({
+          label: str('room name'),
+          kind: en(ROOM_KINDS, 'room purpose; drives furniture'),
+          ...rectProps,
+          open: { type: 'boolean', description: 'true: no walls around this room, even with interiorWalls true. Use for an area that is part of a bigger room: a bar counter area or a stage in a taproom, a dais in a hall, an alcove, a seating nook. Put it inside the bigger room.' },
+        }),
       },
       doors: {
         type: 'array',
@@ -106,7 +111,7 @@ export const PLAN_SCHEMA = obj({
       wall: en([...WALL_MATERIALS, 'none'], "wall material; 'none' for open pavilions"),
       floor: en(SURFACES, 'floor surface inside'),
       storeys: int('number of floors above ground, 1..4'),
-      roof: en(ROOF_KINDS, "'none' for dungeons, caves and interiors players must see into"),
+      roof: en(ROOF_KINDS, "'pitched' for most buildings, 'flat' for towers, keeps and desert houses; 'none' only for dungeons, caves, ruins, open pavilions, or when asked for no roof"),
       windows: en(WINDOW_LEVELS, 'how many exterior windows'),
       interiorWalls: { type: 'boolean', description: 'true: walls between rooms (houses, inns). false: rooms are open to each other (dungeon rooms + corridors joined by doorways)' },
       furnish: en(FURNISH_LEVELS, 'how much furniture to place automatically'),
@@ -256,7 +261,7 @@ export function normalizePlan(input, { maxTiles = MAX_MAP_TILES } = {}) {
       rooms: arr(s.rooms)
         .map((r) => {
           const rect = cleanRect(r, W, H);
-          return rect ? { label: text(r.label), kind: pick(r.kind, ROOM_KINDS, 'other'), ...rect } : null;
+          return rect ? { label: text(r.label), kind: pick(r.kind, ROOM_KINDS, 'other'), ...rect, open: r.open === true } : null;
         })
         .filter(Boolean),
       doors: arr(s.doors)
@@ -271,6 +276,8 @@ export function normalizePlan(input, { maxTiles = MAX_MAP_TILES } = {}) {
       furnish: pick(s.furnish, FURNISH_LEVELS, 'normal'),
     });
   }
+
+  mergeNestedStructures(plan, warn);
 
   for (const b of arr(input.barriers)) {
     const points = arr(b && b.points).map((p) => cleanPoint(p, W, H)).filter(Boolean);
@@ -347,4 +354,46 @@ export function planStats(plan) {
     props: plan.props.length,
     scatter: plan.scatter.length,
   };
+}
+
+// A building drawn inside another roofed building (a stage, a bar or a room
+// drawn as its own structure) would cut a hole in it and get its own outside
+// walls and roof. Make it an open room of the building around it instead.
+const ROOM_WORDS = [
+  [/\b(stage|dais|platform|bandstand|podium)\b/i, 'stage'],
+  [/\b(bar|counter|taproom|tap room)\b/i, 'bar'],
+  [/\b(kitchen|galley)\b/i, 'kitchen'],
+  [/\b(altar|shrine)\b/i, 'shrine'],
+  [/\b(throne)\b/i, 'throne'],
+  [/\b(storage|store ?room|pantry)\b/i, 'storage'],
+];
+
+function partCells(st) {
+  const cells = new Set();
+  for (const r of st.parts) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) cells.add(`${x},${y}`);
+  return cells;
+}
+
+export function mergeNestedStructures(plan, warn = () => {}) {
+  const cells = plan.structures.map(partCells);
+  const merged = new Set();
+  plan.structures.forEach((inner, i) => {
+    let host = -1;
+    plan.structures.forEach((outer, j) => {
+      if (i === j || merged.has(j) || outer.roof === 'none' || outer.wall === 'none') return;
+      if (cells[j].size <= cells[i].size) return;
+      for (const c of cells[i]) if (!cells[j].has(c)) return;
+      if (host < 0 || cells[j].size < cells[host].size) host = j;
+    });
+    if (host < 0) return;
+    const outer = plan.structures[host];
+    const words = `${inner.label} ${inner.id}`;
+    const kind = (ROOM_WORDS.find(([re]) => re.test(words)) || [])[1] || (ROOM_KINDS.includes(inner.kind) ? inner.kind : 'other');
+    for (const r of inner.parts) outer.rooms.push({ label: inner.label, kind, ...r, open: true });
+    for (const r of inner.rooms) outer.rooms.push({ ...r });
+    merged.add(i);
+    warn(`"${inner.label}" was drawn as a separate building inside "${outer.label}"; made it an open area of that building`);
+  });
+  if (merged.size) plan.structures = plan.structures.filter((_, i) => !merged.has(i));
+  return merged.size;
 }

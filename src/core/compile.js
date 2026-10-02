@@ -239,8 +239,11 @@ class Builder {
     for (const S of this.structures) {
       const def = S.def;
       S.rooms = [];
-      for (const r of def.rooms) {
-        const room = { id: this.rooms.length, s: S.index, label: r.label, kind: r.kind, cells: [] };
+      // Smaller rooms first, so a room drawn inside a bigger one (a bar in a
+      // taproom) keeps its tiles instead of losing them all to the bigger one.
+      const byArea = def.rooms.map((r, i) => ({ r, i })).sort((a, b) => a.r.w * a.r.h - b.r.w * b.r.h || a.i - b.i);
+      for (const { r } of byArea) {
+        const room = { id: this.rooms.length, s: S.index, label: r.label, kind: r.kind, open: !!r.open, cells: [] };
         for (let y = r.y; y < r.y + r.h; y++) {
           for (let x = r.x; x < r.x + r.w; x++) {
             const c = this.idx(x, y);
@@ -263,10 +266,47 @@ class Builder {
         this.rooms.push(main);
         S.rooms.push(main);
       }
+      this.resolveOpenRooms(S);
       S.wall = def.wall === 'none' ? null : this.kit.wall(def.wall);
       if (def.wall !== 'none' && !S.wall) this.warn(`no wall pieces found for "${def.wall}"; ${def.label} has no walls`);
       S.height = S.wall ? S.wall.height : 2;
     }
+  }
+
+  // An open room has no walls of its own: for walls it counts as the room it
+  // sits in (the walled room it shares the most edge with). wallRoom maps every
+  // room id to the id that decides walls.
+  resolveOpenRooms(S) {
+    this.wallRoom = this.wallRoom || new Map();
+    for (const r of S.rooms) this.wallRoom.set(r.id, r.id);
+    for (const r of S.rooms) {
+      if (!r.open) continue;
+      const counts = new Map();
+      const mine = new Set(r.cells);
+      for (const c of r.cells) {
+        for (const side of SIDES4) {
+          const n = this.neighbor(c, side);
+          if (n < 0 || mine.has(n) || this.struct[n] !== S.index) continue;
+          const other = this.rooms[this.room[n]];
+          if (other && !other.open) counts.set(other.id, (counts.get(other.id) || 0) + 1);
+        }
+      }
+      const host = [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
+      if (host) this.wallRoom.set(r.id, host[0]);
+    }
+    // open rooms that only touch other open rooms follow them to a walled host
+    for (let k = 0; k < S.rooms.length; k++) {
+      for (const r of S.rooms) if (r.open) {
+        const h = this.wallRoom.get(r.id);
+        if (h !== r.id && this.rooms[h].open) this.wallRoom.set(r.id, this.wallRoom.get(h));
+      }
+    }
+  }
+
+  sameWallRoom(c, n) {
+    const a = this.room[c];
+    const b = this.room[n];
+    return a === b || (this.wallRoom && this.wallRoom.get(a) === this.wallRoom.get(b));
   }
 
   // ---- 2. edges, doors, windows -------------------------------------------
@@ -325,7 +365,7 @@ class Builder {
           if (n >= 0 && inner.get(n) === S.index) continue;
           if (n < 0 || this.struct[n] !== S.index) {
             this.edges.set(`${c}:${side}`, { s: S.index, type: 'wall', partition: false });
-          } else if (S.def.interiorWalls && this.room[n] !== this.room[c] && c < n) {
+          } else if (S.def.interiorWalls && !this.sameWallRoom(c, n) && c < n) {
             this.edges.set(`${c}:${side}`, { s: S.index, type: 'wall', partition: true, other: n });
           }
         }
@@ -351,6 +391,9 @@ class Builder {
         back.type = 'door';
         return true;
       }
+      // The edge of an open room inside a walled building: nothing to put a
+      // door in, and none needed.
+      if (this.struct[n] === S.index && this.struct[c] === S.index && S.def.interiorWalls && this.sameWallRoom(c, n)) return true;
       // Open plan (dungeon rooms joined by passages): a door asked for on an
       // open edge inside the structure stands in the opening.
       if (this.struct[n] === S.index && this.struct[c] === S.index) {
@@ -1089,7 +1132,7 @@ class Builder {
         struct: Array.from(this.struct),
         room: Array.from(this.room),
         structures: this.structures.map((S) => ({ id: S.def.id, label: S.def.label, kind: S.def.kind, storeys: S.def.storeys, roof: S.def.roof, cells: S.cells, synthetic: !!S.def.synthetic })),
-        rooms: this.rooms.map((r) => ({ id: r.id, label: r.label, kind: r.kind, s: r.s, cells: r.cells.length })),
+        rooms: this.rooms.map((r) => ({ id: r.id, label: r.label, kind: r.kind, s: r.s, cells: r.cells.length, ...(r.open ? { open: true } : {}) })),
         edges: [...this.edges].map(([k, e]) => {
           const [c, side] = k.split(':');
           return { x: Number(c) % this.W, y: (Number(c) / this.W) | 0, side, type: e.type, partition: e.partition };

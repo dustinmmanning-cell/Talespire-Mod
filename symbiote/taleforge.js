@@ -881,7 +881,7 @@
       'desk', 'counter', 'fireplace', 'oven', 'anvil', 'forge', 'weapon_rack', 'armor_stand', 'altar', 'statue', 'pillar',
       'fountain', 'well', 'cart', 'boat', 'market_stall', 'tent', 'campfire', 'brazier', 'torch', 'lantern', 'candle',
       'chandelier', 'banner', 'rug', 'bones', 'skeleton', 'coffin', 'cage', 'ladder', 'crystal', 'pottery', 'tankard',
-      'food', 'plant', 'tombstone', 'sign', 'hay', 'trough', 'throne', 'cauldron', 'pew', 'training_dummy', 'fence', 'other',
+      'food', 'plant', 'tombstone', 'sign', 'hay', 'trough', 'throne', 'cauldron', 'pew', 'training_dummy', 'fence', 'instrument', 'other',
     ];
 
     // Anything that reads as the wrong genre in a fantasy build.
@@ -1040,6 +1040,7 @@
       cauldron: { any: ['cauldron'], max: 2 },
       pew: { any: ['pew'], max: 4 },
       training_dummy: { any: ['dummy', 'target'], max: 2 },
+      instrument: { any: ['lute', 'harp', 'lyre', 'drum', 'drums', 'fiddle', 'violin', 'flute', 'mandolin', 'bagpipe', 'bagpipes', 'piano', 'organ', 'instrument'], ex: ['eardrum'], max: 2.5 },
       fence: { pin: ['Harbor Fence 02', 'Desert fence low'], any: ['fence'], ex: ['gate'], max: 3 },
       other: { any: [], max: 6 },
     };
@@ -1351,7 +1352,7 @@
     const ROOM_KINDS = [
       'common', 'bar', 'kitchen', 'bedroom', 'dormitory', 'storage', 'cellar', 'shop', 'workshop', 'forge', 'shrine',
       'chapel', 'library', 'study', 'throne', 'hall', 'dining', 'armory', 'barracks', 'treasury', 'prison', 'crypt',
-      'corridor', 'stable', 'lair', 'cavern', 'empty', 'other',
+      'corridor', 'stable', 'lair', 'cavern', 'stage', 'empty', 'other',
     ];
     const ROOF_KINDS = ['pitched', 'flat', 'none'];
     const FURNISH_LEVELS = ['none', 'sparse', 'normal', 'dense'];
@@ -1421,8 +1422,13 @@
           },
           rooms: {
             type: 'array',
-            description: 'named rooms inside the footprint (may be empty). With interiorWalls true, walls separate rooms.',
-            items: obj({ label: str('room name'), kind: en(ROOM_KINDS, 'room purpose; drives furniture'), ...rectProps }),
+            description: 'named rooms inside the footprint (may be empty). With interiorWalls true, walls separate rooms, except around open rooms.',
+            items: obj({
+              label: str('room name'),
+              kind: en(ROOM_KINDS, 'room purpose; drives furniture'),
+              ...rectProps,
+              open: { type: 'boolean', description: 'true: no walls around this room, even with interiorWalls true. Use for an area that is part of a bigger room: a bar counter area or a stage in a taproom, a dais in a hall, an alcove, a seating nook. Put it inside the bigger room.' },
+            }),
           },
           doors: {
             type: 'array',
@@ -1432,7 +1438,7 @@
           wall: en([...WALL_MATERIALS, 'none'], "wall material; 'none' for open pavilions"),
           floor: en(SURFACES, 'floor surface inside'),
           storeys: int('number of floors above ground, 1..4'),
-          roof: en(ROOF_KINDS, "'none' for dungeons, caves and interiors players must see into"),
+          roof: en(ROOF_KINDS, "'pitched' for most buildings, 'flat' for towers, keeps and desert houses; 'none' only for dungeons, caves, ruins, open pavilions, or when asked for no roof"),
           windows: en(WINDOW_LEVELS, 'how many exterior windows'),
           interiorWalls: { type: 'boolean', description: 'true: walls between rooms (houses, inns). false: rooms are open to each other (dungeon rooms + corridors joined by doorways)' },
           furnish: en(FURNISH_LEVELS, 'how much furniture to place automatically'),
@@ -1582,7 +1588,7 @@
           rooms: arr(s.rooms)
             .map((r) => {
               const rect = cleanRect(r, W, H);
-              return rect ? { label: text(r.label), kind: pick(r.kind, ROOM_KINDS, 'other'), ...rect } : null;
+              return rect ? { label: text(r.label), kind: pick(r.kind, ROOM_KINDS, 'other'), ...rect, open: r.open === true } : null;
             })
             .filter(Boolean),
           doors: arr(s.doors)
@@ -1597,6 +1603,8 @@
           furnish: pick(s.furnish, FURNISH_LEVELS, 'normal'),
         });
       }
+
+      mergeNestedStructures(plan, warn);
 
       for (const b of arr(input.barriers)) {
         const points = arr(b && b.points).map((p) => cleanPoint(p, W, H)).filter(Boolean);
@@ -1675,7 +1683,49 @@
       };
     }
 
-    return { PLAN_VERSION, MAX_MAP_TILES, STRUCTURE_KINDS, ROOM_KINDS, ROOF_KINDS, FURNISH_LEVELS, WINDOW_LEVELS, SIDES, BARRIER_KINDS, PLAN_SCHEMA, normalizePlan, planStats };
+    // A building drawn inside another roofed building (a stage, a bar or a room
+    // drawn as its own structure) would cut a hole in it and get its own outside
+    // walls and roof. Make it an open room of the building around it instead.
+    const ROOM_WORDS = [
+      [/\b(stage|dais|platform|bandstand|podium)\b/i, 'stage'],
+      [/\b(bar|counter|taproom|tap room)\b/i, 'bar'],
+      [/\b(kitchen|galley)\b/i, 'kitchen'],
+      [/\b(altar|shrine)\b/i, 'shrine'],
+      [/\b(throne)\b/i, 'throne'],
+      [/\b(storage|store ?room|pantry)\b/i, 'storage'],
+    ];
+
+    function partCells(st) {
+      const cells = new Set();
+      for (const r of st.parts) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) cells.add(`${x},${y}`);
+      return cells;
+    }
+
+    function  mergeNestedStructures(plan, warn = () => {}) {
+      const cells = plan.structures.map(partCells);
+      const merged = new Set();
+      plan.structures.forEach((inner, i) => {
+        let host = -1;
+        plan.structures.forEach((outer, j) => {
+          if (i === j || merged.has(j) || outer.roof === 'none' || outer.wall === 'none') return;
+          if (cells[j].size <= cells[i].size) return;
+          for (const c of cells[i]) if (!cells[j].has(c)) return;
+          if (host < 0 || cells[j].size < cells[host].size) host = j;
+        });
+        if (host < 0) return;
+        const outer = plan.structures[host];
+        const words = `${inner.label} ${inner.id}`;
+        const kind = (ROOM_WORDS.find(([re]) => re.test(words)) || [])[1] || (ROOM_KINDS.includes(inner.kind) ? inner.kind : 'other');
+        for (const r of inner.parts) outer.rooms.push({ label: inner.label, kind, ...r, open: true });
+        for (const r of inner.rooms) outer.rooms.push({ ...r });
+        merged.add(i);
+        warn(`"${inner.label}" was drawn as a separate building inside "${outer.label}"; made it an open area of that building`);
+      });
+      if (merged.size) plan.structures = plan.structures.filter((_, i) => !merged.has(i));
+      return merged.size;
+    }
+
+    return { PLAN_VERSION, MAX_MAP_TILES, STRUCTURE_KINDS, ROOM_KINDS, ROOF_KINDS, FURNISH_LEVELS, WINDOW_LEVELS, SIDES, BARRIER_KINDS, PLAN_SCHEMA, normalizePlan, planStats, mergeNestedStructures };
   })();
   // ---- furnish.js ----
   __m['furnish'] = (function () {
@@ -1830,6 +1880,13 @@
         { role: 'rock', at: 'wall', per: 8, min: 1, max: 10 },
         { role: 'mushroom', at: 'center', per: 12, max: 6 },
         { role: 'crystal', at: 'wall', per: 16, max: 3 },
+      ],
+      stage: [
+        { role: 'rug', at: 'center', max: 1 },
+        { role: 'instrument', at: 'wall', min: 1, max: 2 },
+        { role: 'stool', at: 'center', min: 1, max: 2 },
+        { role: 'banner', at: 'wall', max: 1 },
+        { role: 'candle', at: 'wall', per: 6, max: 2 },
       ],
       empty: [],
       other: [
@@ -2270,8 +2327,11 @@
         for (const S of this.structures) {
           const def = S.def;
           S.rooms = [];
-          for (const r of def.rooms) {
-            const room = { id: this.rooms.length, s: S.index, label: r.label, kind: r.kind, cells: [] };
+          // Smaller rooms first, so a room drawn inside a bigger one (a bar in a
+          // taproom) keeps its tiles instead of losing them all to the bigger one.
+          const byArea = def.rooms.map((r, i) => ({ r, i })).sort((a, b) => a.r.w * a.r.h - b.r.w * b.r.h || a.i - b.i);
+          for (const { r } of byArea) {
+            const room = { id: this.rooms.length, s: S.index, label: r.label, kind: r.kind, open: !!r.open, cells: [] };
             for (let y = r.y; y < r.y + r.h; y++) {
               for (let x = r.x; x < r.x + r.w; x++) {
                 const c = this.idx(x, y);
@@ -2294,10 +2354,47 @@
             this.rooms.push(main);
             S.rooms.push(main);
           }
+          this.resolveOpenRooms(S);
           S.wall = def.wall === 'none' ? null : this.kit.wall(def.wall);
           if (def.wall !== 'none' && !S.wall) this.warn(`no wall pieces found for "${def.wall}"; ${def.label} has no walls`);
           S.height = S.wall ? S.wall.height : 2;
         }
+      }
+
+      // An open room has no walls of its own: for walls it counts as the room it
+      // sits in (the walled room it shares the most edge with). wallRoom maps every
+      // room id to the id that decides walls.
+      resolveOpenRooms(S) {
+        this.wallRoom = this.wallRoom || new Map();
+        for (const r of S.rooms) this.wallRoom.set(r.id, r.id);
+        for (const r of S.rooms) {
+          if (!r.open) continue;
+          const counts = new Map();
+          const mine = new Set(r.cells);
+          for (const c of r.cells) {
+            for (const side of SIDES4) {
+              const n = this.neighbor(c, side);
+              if (n < 0 || mine.has(n) || this.struct[n] !== S.index) continue;
+              const other = this.rooms[this.room[n]];
+              if (other && !other.open) counts.set(other.id, (counts.get(other.id) || 0) + 1);
+            }
+          }
+          const host = [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
+          if (host) this.wallRoom.set(r.id, host[0]);
+        }
+        // open rooms that only touch other open rooms follow them to a walled host
+        for (let k = 0; k < S.rooms.length; k++) {
+          for (const r of S.rooms) if (r.open) {
+            const h = this.wallRoom.get(r.id);
+            if (h !== r.id && this.rooms[h].open) this.wallRoom.set(r.id, this.wallRoom.get(h));
+          }
+        }
+      }
+
+      sameWallRoom(c, n) {
+        const a = this.room[c];
+        const b = this.room[n];
+        return a === b || (this.wallRoom && this.wallRoom.get(a) === this.wallRoom.get(b));
       }
 
       // ---- 2. edges, doors, windows -------------------------------------------
@@ -2356,7 +2453,7 @@
               if (n >= 0 && inner.get(n) === S.index) continue;
               if (n < 0 || this.struct[n] !== S.index) {
                 this.edges.set(`${c}:${side}`, { s: S.index, type: 'wall', partition: false });
-              } else if (S.def.interiorWalls && this.room[n] !== this.room[c] && c < n) {
+              } else if (S.def.interiorWalls && !this.sameWallRoom(c, n) && c < n) {
                 this.edges.set(`${c}:${side}`, { s: S.index, type: 'wall', partition: true, other: n });
               }
             }
@@ -2382,6 +2479,9 @@
             back.type = 'door';
             return true;
           }
+          // The edge of an open room inside a walled building: nothing to put a
+          // door in, and none needed.
+          if (this.struct[n] === S.index && this.struct[c] === S.index && S.def.interiorWalls && this.sameWallRoom(c, n)) return true;
           // Open plan (dungeon rooms joined by passages): a door asked for on an
           // open edge inside the structure stands in the opening.
           if (this.struct[n] === S.index && this.struct[c] === S.index) {
@@ -3120,7 +3220,7 @@
             struct: Array.from(this.struct),
             room: Array.from(this.room),
             structures: this.structures.map((S) => ({ id: S.def.id, label: S.def.label, kind: S.def.kind, storeys: S.def.storeys, roof: S.def.roof, cells: S.cells, synthetic: !!S.def.synthetic })),
-            rooms: this.rooms.map((r) => ({ id: r.id, label: r.label, kind: r.kind, s: r.s, cells: r.cells.length })),
+            rooms: this.rooms.map((r) => ({ id: r.id, label: r.label, kind: r.kind, s: r.s, cells: r.cells.length, ...(r.open ? { open: true } : {}) })),
             edges: [...this.edges].map(([k, e]) => {
               const [c, side] = k.split(':');
               return { x: Number(c) % this.W, y: (Number(c) / this.W) | 0, side, type: e.type, partition: e.partition };
@@ -3421,6 +3521,29 @@
       out.push(`<path d="${windows.join('')}" stroke="#9fd3f2" stroke-width="${Math.max(2, S * 0.18)}"/>`);
       out.push(`<path d="${doors.join('')}" stroke="#e8a33d" stroke-width="${Math.max(2, S * 0.3)}"/>`);
 
+      // open rooms (a bar area or a stage inside a bigger room): dashed outline
+      const openRooms = new Map((g.rooms || []).filter((r) => r.open).map((r) => [r.id, { r, sx: 0, sy: 0, n: 0 }]));
+      if (openRooms.size && g.room) {
+        const dashes = [];
+        for (let c = 0; c < g.room.length; c++) {
+          const o = openRooms.get(g.room[c]);
+          if (!o) continue;
+          const x = c % W;
+          const y = Math.floor(c / W);
+          o.sx += x + 0.5;
+          o.sy += y + 0.5;
+          o.n++;
+          for (const [side, dx, dy] of [['n', 0, -1], ['s', 0, 1], ['w', -1, 0], ['e', 1, 0]]) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx >= 0 && ny >= 0 && nx < W && ny < H && g.room[ny * W + nx] === g.room[c]) continue;
+            const [x1, y1, x2, y2] = edgeLine(x, y, side, 0.06);
+            dashes.push(`M${x1} ${y1}L${x2} ${y2}`);
+          }
+        }
+        out.push(`<path d="${dashes.join('')}" stroke="#f0e6d0" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>`);
+      }
+
       for (const p of g.props || []) {
         const cls = PROP_CLASS[p.role] || (p.role === 'fence' ? 'furniture' : 'furniture');
         const r = cls === 'nature' && /tree|conifer/.test(p.role) ? S * 0.45 : S * 0.22;
@@ -3439,6 +3562,12 @@
         const cy = (sy / s.cells.length) * S;
         const fs = Math.max(9, Math.min(14, S * 0.85));
         out.push(`<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" font-size="${fs}" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${esc(s.label)}${s.storeys > 1 ? ` (${s.storeys}F)` : ''}</text>`);
+      }
+
+      for (const { r, sx, sy, n } of openRooms.values()) {
+        if (!n) continue;
+        const fs = Math.max(8, Math.min(11, S * 0.55));
+        out.push(`<text x="${((sx / n) * S).toFixed(1)}" y="${((sy / n) * S + fs / 3).toFixed(1)}" text-anchor="middle" font-size="${fs}" font-style="italic" fill="#f0e6d0" stroke="#000" stroke-width="2.5" paint-order="stroke">${esc(r.label)}</text>`);
       }
 
       if (chunks) {
@@ -4547,10 +4676,12 @@
     # How the builder works -- design for it
     - ground fills the whole map; areas paint over it in order; paths paint over areas; structures paint their floors over everything. Use ground 'none' for dungeons and interiors so only rooms have floors.
     - Every structure gets walls automatically around the outline of its parts. Never draw a building's walls yourself.
+    - One building is ONE structure. Everything inside it (a bar, a stage, a kitchen, a dais) is a room of that structure, never a second structure: a structure drawn inside or across another becomes a separate building with its own outside walls.
       - interiorWalls true: walls between different rooms (houses, inns, manors, keeps). Rooms should tile the footprint; any footprint not covered by a room becomes a hallway.
+      - open: true on a room removes its walls even when interiorWalls is true. Use it for an area that is part of a bigger room rather than a room of its own: the bar counter area or the bard's stage in a taproom (kind 'bar' or 'stage', placed inside the taproom against a wall), a dais in a hall, an alcove, a seating nook. A tavern is typically a big open taproom (kind 'common') holding an open bar and an open stage, plus walled kitchen and storerooms with doors.
       - interiorWalls false: rooms are open to each other. Build a dungeon or cave as ONE structure whose parts are its rooms and corridors, touching edge to edge where they connect (a corridor part must share an edge with the rooms it joins). Name each part as a room so it gets the right furniture.
     - doors: {x, y, side} names a tile inside the structure and the side of that tile the door is on. Put an exterior door on the side facing a road or yard. With interiorWalls true, interior doors sit on the wall between two rooms. In an open dungeon a door may stand where a corridor meets a room. The builder adds doors where a room would otherwise be unreachable, but place the important ones yourself.
-    - storeys stack walls; upper floors are solid floors and the builder adds stairs. roof: 'pitched' for houses, 'flat' for towers, keeps and desert houses, 'none' for dungeons, caves and anything players must see into.
+    - storeys stack walls; upper floors are solid floors and the builder adds stairs. roof: 'pitched' for houses, taverns and most buildings, 'flat' for towers, keeps and desert houses, 'none' only for dungeons, caves, ruins and open pavilions, or when the user asks for no roof. Buildings get roofs by default.
     - furnish fills every room with furniture suited to its kind (bar, kitchen, bedroom, forge, shrine, library, crypt, treasury...). Add explicit props only for things that matter to the scene: a throne, an altar, a well, market stalls, a boat, a statue, a campfire, a cart, a sign.
     - barriers are free-standing walls along grid lines (integer coordinates): town walls ('fortification', towers at the corners, gates given as points on the line), palisades, fences, hedges.
     - scatter fills a polygon with natural clutter: forests (tree/conifer, density 0.25-0.45), rocky ground (rock/boulder 0.05-0.15), fields of crops or hay, graveyards (tombstone 0.2). The builder keeps scatter out of buildings and water.
@@ -5152,7 +5283,7 @@
         const x0 = i * 4;
         for (let dx = 0; dx < 3; dx++) for (let dz = 0; dz < 3; dz++) out.push(placeInCell(floor.base, x0 + dx, dz, 0, 0));
         for (let dx = 0; dx < 3; dx++) out.push(placeOnEdge(wall.plain1, x0 + dx, 2, 'zMax', top));
-        // i+1 marker stones on the near edge so pads can be told apart
+        // i+1 extra floor tiles on the near edge so pads can be told apart
         for (let k = 0; k <= i; k++) out.push(placeInCell(floor.base, x0 + k, -1, 0, 0));
         const rot = edgeRotation(prop, 'zMax', offset);
         const [, fz] = rotatedFootprint(prop, rot);

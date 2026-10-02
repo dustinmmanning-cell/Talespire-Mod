@@ -150,6 +150,13 @@ export const ROOM_FURNITURE = {
     { role: 'mushroom', at: 'center', per: 12, max: 6 },
     { role: 'crystal', at: 'wall', per: 16, max: 3 },
   ],
+  stage: [
+    { role: 'rug', at: 'center', max: 1 },
+    { role: 'instrument', at: 'wall', min: 1, max: 2 },
+    { role: 'stool', at: 'center', min: 1, max: 2 },
+    { role: 'banner', at: 'wall', max: 1 },
+    { role: 'candle', at: 'wall', per: 6, max: 2 },
+  ],
   empty: [],
   other: [
     { role: 'crate', at: 'wall', max: 1 },

@@ -84,6 +84,29 @@ export function renderPreviewSvg(result, { scale = 14, chunks = null, title = tr
   out.push(`<path d="${windows.join('')}" stroke="#9fd3f2" stroke-width="${Math.max(2, S * 0.18)}"/>`);
   out.push(`<path d="${doors.join('')}" stroke="#e8a33d" stroke-width="${Math.max(2, S * 0.3)}"/>`);
 
+  // open rooms (a bar area or a stage inside a bigger room): dashed outline
+  const openRooms = new Map((g.rooms || []).filter((r) => r.open).map((r) => [r.id, { r, sx: 0, sy: 0, n: 0 }]));
+  if (openRooms.size && g.room) {
+    const dashes = [];
+    for (let c = 0; c < g.room.length; c++) {
+      const o = openRooms.get(g.room[c]);
+      if (!o) continue;
+      const x = c % W;
+      const y = Math.floor(c / W);
+      o.sx += x + 0.5;
+      o.sy += y + 0.5;
+      o.n++;
+      for (const [side, dx, dy] of [['n', 0, -1], ['s', 0, 1], ['w', -1, 0], ['e', 1, 0]]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= 0 && ny >= 0 && nx < W && ny < H && g.room[ny * W + nx] === g.room[c]) continue;
+        const [x1, y1, x2, y2] = edgeLine(x, y, side, 0.06);
+        dashes.push(`M${x1} ${y1}L${x2} ${y2}`);
+      }
+    }
+    out.push(`<path d="${dashes.join('')}" stroke="#f0e6d0" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>`);
+  }
+
   for (const p of g.props || []) {
     const cls = PROP_CLASS[p.role] || (p.role === 'fence' ? 'furniture' : 'furniture');
     const r = cls === 'nature' && /tree|conifer/.test(p.role) ? S * 0.45 : S * 0.22;
@@ -102,6 +125,12 @@ export function renderPreviewSvg(result, { scale = 14, chunks = null, title = tr
     const cy = (sy / s.cells.length) * S;
     const fs = Math.max(9, Math.min(14, S * 0.85));
     out.push(`<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" font-size="${fs}" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${esc(s.label)}${s.storeys > 1 ? ` (${s.storeys}F)` : ''}</text>`);
+  }
+
+  for (const { r, sx, sy, n } of openRooms.values()) {
+    if (!n) continue;
+    const fs = Math.max(8, Math.min(11, S * 0.55));
+    out.push(`<text x="${((sx / n) * S).toFixed(1)}" y="${((sy / n) * S + fs / 3).toFixed(1)}" text-anchor="middle" font-size="${fs}" font-style="italic" fill="#f0e6d0" stroke="#000" stroke-width="2.5" paint-order="stroke">${esc(r.label)}</text>`);
   }
 
   if (chunks) {

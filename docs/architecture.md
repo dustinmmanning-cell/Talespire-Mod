@@ -39,7 +39,7 @@ Coordinates are in tiles (1 tile = 5 ft). (0, 0) is the top-left of the map; x g
 | `width`, `height`, `style`, `ground` | Map size, look (`medieval`, `castle`, `dungeon`, `cave`, `ruins`, `desert`, `swamp`, `winter`, …), and the base surface (`none` for dungeons and interiors) |
 | `areas[]` | Polygons painted over the ground in order: plazas, lakes, fields |
 | `paths[]` | Polylines with a width: streets, trails, rivers |
-| `structures[]` | Walled spaces: `parts` (union of rectangles), `rooms`, `doors` ({x, y, side}), `wall`/`floor` materials, `storeys`, `roof` (pitched/flat/none), `windows`, `interiorWalls`, `furnish` |
+| `structures[]` | Walled spaces: `parts` (union of rectangles), `rooms` (an `open` room has no walls of its own: a bar area or a stage inside a taproom), `doors` ({x, y, side}), `wall`/`floor` materials, `storeys`, `roof` (pitched/flat/none), `windows`, `interiorWalls`, `furnish` |
 | `barriers[]` | Free-standing walls along grid lines: fortifications (towers, gates), palisades, fences, hedges |
 | `props[]` | Placed objects: a `role` from a fixed vocabulary, plus an optional exact `asset` name from the GM's library |
 | `scatter[]` | Polygons filled with natural clutter at a density: forests, rocks, graveyards |
@@ -69,9 +69,9 @@ The **Kit** tab shows every resolution with game thumbnails and the reason it wa
 
 `src/core/compile.js` is deterministic: the same plan, kit and seed always produce the same slab. It runs in stages:
 
-1. **Rasterize.** Ground → areas → paths → traced raster → structure footprints onto a tile grid. Later structures override earlier ones. Rooms subdivide structures; leftover cells form a hallway or main room.
+1. **Rasterize.** Ground → areas → paths → traced raster → structure footprints onto a tile grid. Later structures override earlier ones, but first the normalizer turns a structure drawn entirely inside another roofed building into an open room of that building (a model will sometimes draw a stage or a bar as its own building, which would cut a hole with its own outside walls). Rooms subdivide structures, smallest first, so a room drawn inside a bigger one keeps its tiles. Leftover cells form a hallway or main room.
 2. **Edges.**
-   - Every structure cell side that faces outside gets an exterior wall edge. With `interiorWalls`, sides between different rooms get partition edges.
+   - Every structure cell side that faces outside gets an exterior wall edge. With `interiorWalls`, sides between different rooms get partition edges, except around open rooms, which count as part of the walled room they sit in.
    - Water or lava fully enclosed by one structure (a pool inside a hall) gets no walls.
 3. **Doors.**
    - Planned doors are applied. A door that isn't on a wall snaps to the nearest wall edge, preferring the same side. In open-plan dungeons it stands freely in the opening.
@@ -183,12 +183,12 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 ## Testing
 
-- `npm test`: 62 unit tests, covering:
+- `npm test`: 64 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - reading asset packs through the Symbiote API: skipping packs TaleSpire cannot describe, and accepting pack contents in shapes other than the documented arrays
   - kit resolution
-  - compiler guarantees: walls, doors, reachability, open-plan dungeons, roofs, fortifications, no prop overlaps, floors on the grid, determinism
+  - compiler guarantees: walls, doors, reachability, open-plan dungeons, open rooms and nested buildings, roofs, fortifications, no prop overlaps, floors on the grid, determinism
   - chunking and registration
   - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, refusals, retries, quota errors, usage and cost
   - the plan and trace schemas against OpenAI's strict-mode rules

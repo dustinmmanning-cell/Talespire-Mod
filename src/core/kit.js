@@ -24,7 +24,7 @@ export const PROP_ROLES = [
   'desk', 'counter', 'fireplace', 'oven', 'anvil', 'forge', 'weapon_rack', 'armor_stand', 'altar', 'statue', 'pillar',
   'fountain', 'well', 'cart', 'boat', 'market_stall', 'tent', 'campfire', 'brazier', 'torch', 'lantern', 'candle',
   'chandelier', 'banner', 'rug', 'bones', 'skeleton', 'coffin', 'cage', 'ladder', 'crystal', 'pottery', 'tankard',
-  'food', 'plant', 'tombstone', 'sign', 'hay', 'trough', 'throne', 'cauldron', 'pew', 'training_dummy', 'fence', 'other',
+  'food', 'plant', 'tombstone', 'sign', 'hay', 'trough', 'throne', 'cauldron', 'pew', 'training_dummy', 'fence', 'instrument', 'other',
 ];
 
 // Anything that reads as the wrong genre in a fantasy build.
@@ -183,6 +183,7 @@ const PROP_DEFS = {
   cauldron: { any: ['cauldron'], max: 2 },
   pew: { any: ['pew'], max: 4 },
   training_dummy: { any: ['dummy', 'target'], max: 2 },
+  instrument: { any: ['lute', 'harp', 'lyre', 'drum', 'drums', 'fiddle', 'violin', 'flute', 'mandolin', 'bagpipe', 'bagpipes', 'piano', 'organ', 'instrument'], ex: ['eardrum'], max: 2.5 },
   fence: { pin: ['Harbor Fence 02', 'Desert fence low'], any: ['fence'], ex: ['gate'], max: 3 },
   other: { any: [], max: 6 },
 };

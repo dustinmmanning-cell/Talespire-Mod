@@ -44,7 +44,7 @@ export function facingProbe(kit, role = 'bed') {
     const x0 = i * 4;
     for (let dx = 0; dx < 3; dx++) for (let dz = 0; dz < 3; dz++) out.push(placeInCell(floor.base, x0 + dx, dz, 0, 0));
     for (let dx = 0; dx < 3; dx++) out.push(placeOnEdge(wall.plain1, x0 + dx, 2, 'zMax', top));
-    // i+1 marker stones on the near edge so pads can be told apart
+    // i+1 extra floor tiles on the near edge so pads can be told apart
     for (let k = 0; k <= i; k++) out.push(placeInCell(floor.base, x0 + k, -1, 0, 0));
     const rot = edgeRotation(prop, 'zMax', offset);
     const [, fz] = rotatedFootprint(prop, rot);

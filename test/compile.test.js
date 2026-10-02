@@ -199,3 +199,67 @@ test('small builds are a single slab without markers', async () => {
   assert.equal(out.chunks.length, 1);
   assert.equal(out.registered, false);
 });
+
+// The first in-game tavern: the AI drew the bard's stage as a second building
+// inside the tavern (so it got its own outside walls), and had no way to keep
+// a bar area open to the taproom while the kitchen stayed walled.
+function tavern() {
+  const s = (extra) => ({ wall: 'wood', floor: 'wood_floor', storeys: 1, roof: 'pitched', windows: 'none', furnish: 'normal', ...extra });
+  return {
+    title: 'The Copper Lute', summary: '', width: 16, height: 16, style: 'tavern', ground: 'grass', areas: [], paths: [], barriers: [], props: [], scatter: [], notes: '',
+    structures: [
+      s({
+        id: 'tavern', label: 'The Copper Lute Tavern', kind: 'tavern', parts: [{ x: 1, y: 1, w: 14, h: 14 }], interiorWalls: true,
+        rooms: [
+          { label: 'Taproom', kind: 'common', x: 1, y: 1, w: 14, h: 8, open: false },
+          { label: 'Bar', kind: 'bar', x: 2, y: 1, w: 6, h: 2, open: true },
+          { label: 'Kitchen', kind: 'kitchen', x: 1, y: 9, w: 5, h: 6, open: false },
+          { label: 'Stores', kind: 'storage', x: 6, y: 9, w: 4, h: 6, open: false },
+          { label: 'Vestibule', kind: 'corridor', x: 10, y: 9, w: 5, h: 6, open: false },
+        ],
+        doors: [{ x: 12, y: 14, side: 's' }, { x: 3, y: 9, side: 'n' }, { x: 7, y: 9, side: 'n' }, { x: 12, y: 9, side: 'n' }, { x: 4, y: 2, side: 's' }],
+      }),
+      s({ id: 'stage', label: "Raised bard's stage inside the tavern", kind: 'other', parts: [{ x: 11, y: 1, w: 4, h: 3 }], rooms: [], doors: [], interiorWalls: false }),
+    ],
+  };
+}
+
+test('a building drawn inside another becomes an open room of it', () => {
+  const { plan, warnings } = normalizePlan(tavern());
+  assert.equal(plan.structures.length, 1);
+  assert.ok(warnings.some((w) => /drawn as a separate building inside "The Copper Lute Tavern"/.test(w)));
+  const stage = plan.structures[0].rooms.find((r) => /stage/.test(r.label));
+  assert.deepEqual({ kind: stage.kind, open: stage.open, x: stage.x, y: stage.y, w: stage.w, h: stage.h }, { kind: 'stage', open: true, x: 11, y: 1, w: 4, h: 3 });
+  // an unroofed outer structure (a walled yard) keeps buildings inside it separate
+  const yard = tavern();
+  yard.structures[0].roof = 'none';
+  assert.equal(normalizePlan(yard).plan.structures.length, 2);
+});
+
+test('open rooms get no walls; walled rooms keep theirs; nested rooms keep their tiles', () => {
+  const r = compilePlan(tavern(), kitFor(tavern()));
+  const edges = r.grid.edges;
+  const at = (x, y, side) => edges.find((e) => e.x === x && e.y === y && e.side === side);
+  // bar (x 2..7, y 1..2) is open to the taproom: nothing on its south or west/east sides
+  for (let x = 2; x <= 7; x++) assert.equal(at(x, 2, 's'), undefined, `bar south edge at x=${x}`);
+  for (const y of [1, 2]) {
+    assert.equal(at(1, y, 'e'), undefined, `bar west edge at y=${y}`);
+    assert.equal(at(7, y, 'e'), undefined, `bar east edge at y=${y}`);
+  }
+  // the stage (x 11..14, y 1..3) too
+  for (const y of [1, 2, 3]) assert.equal(at(10, y, 'e'), undefined, `stage west edge at y=${y}`);
+  for (let x = 11; x <= 14; x++) assert.equal(at(x, 3, 's'), undefined, `stage south edge at x=${x}`);
+  // the door asked for on the bar's open edge is dropped, not stood in the open
+  assert.ok(!edges.some((e) => e.freestanding));
+  assert.ok(!r.warnings.some((w) => /door at \(4,2\)/.test(w)));
+  // kitchen, stores and vestibule are still walled off from the taproom, with their doors
+  const kitchenTop = [1, 2, 3, 4, 5].map((x) => at(x, 8, 's'));
+  assert.ok(kitchenTop.every(Boolean), 'kitchen north wall');
+  assert.equal(kitchenTop.filter((e) => e.type === 'door').length, 1);
+  // one building, and the bar and stage keep all their tiles despite being listed after the taproom
+  assert.equal(r.grid.structures.length, 1);
+  const room = (label) => r.grid.rooms.find((x) => x.label === label || x.label.startsWith(label));
+  assert.equal(room('Bar').cells, 12);
+  assert.equal(room('Raised').cells, 12);
+  assert.equal(room('Taproom').cells, 14 * 8 - 12 - 12);
+});
