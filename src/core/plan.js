@@ -52,6 +52,16 @@ const rectProps = {
   h: int('height in tiles (>= 1)'),
 };
 
+export const MAX_STOREYS = 6;
+
+const roomItem = obj({
+  label: str('room name'),
+  kind: en(ROOM_KINDS, 'room purpose; drives furniture'),
+  ...rectProps,
+  open: { type: 'boolean', description: 'true: no walls around this room, even with interiorWalls true. Use for an area that is part of a bigger room: a bar counter area or a stage in a taproom, a dais in a hall, an alcove, a seating nook. Put it inside the bigger room.' },
+});
+const doorItem = obj({ x: int('tile x inside the structure'), y: int('tile y inside the structure'), side: en(SIDES, 'which side of that tile') });
+
 // JSON Schema for structured outputs: closed objects, every property required,
 // no numeric/length constraints (unsupported) -- ranges are enforced by the
 // normalizer instead.
@@ -95,22 +105,27 @@ export const PLAN_SCHEMA = obj({
       },
       rooms: {
         type: 'array',
-        description: 'named rooms inside the footprint (may be empty). With interiorWalls true, walls separate rooms, except around open rooms.',
-        items: obj({
-          label: str('room name'),
-          kind: en(ROOM_KINDS, 'room purpose; drives furniture'),
-          ...rectProps,
-          open: { type: 'boolean', description: 'true: no walls around this room, even with interiorWalls true. Use for an area that is part of a bigger room: a bar counter area or a stage in a taproom, a dais in a hall, an alcove, a seating nook. Put it inside the bigger room.' },
-        }),
+        description: 'named rooms of the ground floor (may be empty). With interiorWalls true, walls separate rooms, except around open rooms.',
+        items: roomItem,
       },
       doors: {
         type: 'array',
-        description: 'doors, each on one side of a tile inside the footprint; exterior doors face outside, interior doors sit between two rooms',
-        items: obj({ x: int('tile x inside the structure'), y: int('tile y inside the structure'), side: en(SIDES, 'which side of that tile') }),
+        description: 'ground-floor doors, each on one side of a tile inside the footprint; exterior doors face outside, interior doors sit between two rooms',
+        items: doorItem,
+      },
+      upperFloors: {
+        type: 'array',
+        description: 'floors above the ground floor, bottom to top (empty for a one-storey building). Each has its own footprint, rooms and doors, so floors can differ: smaller, shifted, turned 90 degrees, overhanging. Each must overlap the floor below by at least 2x2 tiles; stairs go in the overlap.',
+        items: obj({
+          label: str('what this floor is, e.g. "guest rooms"'),
+          parts: { type: 'array', description: 'footprint of this floor as a union of rectangles, in the same map coordinates as the ground floor', items: obj(rectProps) },
+          rooms: { type: 'array', description: 'rooms on this floor', items: roomItem },
+          doors: { type: 'array', description: 'doors on this floor: between its rooms, or on an outer wall onto the flat roof of the floor below (a terrace)', items: doorItem },
+        }),
       },
       wall: en([...WALL_MATERIALS, 'none'], "wall material; 'none' for open pavilions"),
       floor: en(SURFACES, 'floor surface inside'),
-      storeys: int('number of floors above ground, 1..4'),
+      storeys: int(`number of floors including the ground floor, 1..${MAX_STOREYS}; with upperFloors it is 1 + their count`),
       roof: en(ROOF_KINDS, "'pitched' for most buildings, 'flat' for towers, keeps and desert houses; 'none' only for dungeons, caves, ruins, open pavilions, or when asked for no roof"),
       windows: en(WINDOW_LEVELS, 'how many exterior windows'),
       interiorWalls: { type: 'boolean', description: 'true: walls between rooms (houses, inns). false: rooms are open to each other (dungeon rooms + corridors joined by doorways)' },
@@ -177,6 +192,21 @@ const pick = (v, allowed, dflt) => {
 };
 const text = (v, dflt = '') => (typeof v === 'string' ? v.slice(0, 2000) : dflt);
 const arr = (v) => (Array.isArray(v) ? v : []);
+
+function cleanRooms(list, W, H) {
+  return arr(list)
+    .map((r) => {
+      const rect = r && typeof r === 'object' ? cleanRect(r, W, H) : null;
+      return rect ? { label: text(r.label), kind: pick(r.kind, ROOM_KINDS, 'other'), ...rect, open: r.open === true } : null;
+    })
+    .filter(Boolean);
+}
+
+function cleanDoors(list, W, H) {
+  return arr(list)
+    .map((d) => (d && typeof d === 'object' ? { x: clampInt(d.x, 0, W - 1, 0), y: clampInt(d.y, 0, H - 1, 0), side: pick(d.side, SIDES, 's') } : null))
+    .filter(Boolean);
+}
 
 function cleanPoint(p, W, H, pad = 0) {
   if (!Array.isArray(p) || p.length < 2) return null;
@@ -266,18 +296,19 @@ export function normalizePlan(input, { maxTiles = MAX_MAP_TILES } = {}) {
       label: text(s.label, id),
       kind,
       parts,
-      rooms: arr(s.rooms)
-        .map((r) => {
-          const rect = cleanRect(r, W, H);
-          return rect ? { label: text(r.label), kind: pick(r.kind, ROOM_KINDS, 'other'), ...rect, open: r.open === true } : null;
-        })
-        .filter(Boolean),
-      doors: arr(s.doors)
-        .map((d) => (d && typeof d === 'object' ? { x: clampInt(d.x, 0, W - 1, 0), y: clampInt(d.y, 0, H - 1, 0), side: pick(d.side, SIDES, 's') } : null))
-        .filter(Boolean),
+      rooms: cleanRooms(s.rooms, W, H),
+      doors: cleanDoors(s.doors, W, H),
+      upperFloors: arr(s.upperFloors).slice(0, MAX_STOREYS - 1).map((f, i) => {
+        const fparts = arr(f && f.parts).map((r) => cleanRect(r, W, H)).filter(Boolean);
+        if (!fparts.length) {
+          warn(`floor ${i + 2} of "${s.label || id}" dropped: no part inside the map`);
+          return null;
+        }
+        return { label: text(f.label), parts: fparts, rooms: cleanRooms(f.rooms, W, H), doors: cleanDoors(f.doors, W, H) };
+      }).filter(Boolean),
       wall: pick(s.wall, [...WALL_MATERIALS, 'none'], preset.wall),
       floor: pick(s.floor, SURFACES, preset.floor),
-      storeys: clampInt(s.storeys, 1, 4, 1),
+      storeys: clampInt(s.storeys, 1, MAX_STOREYS, 1),
       roof: pick(s.roof, ROOF_KINDS, dungeonish ? 'none' : preset.roof),
       windows: pick(s.windows, WINDOW_LEVELS, dungeonish ? 'none' : 'few'),
       interiorWalls: typeof s.interiorWalls === 'boolean' ? s.interiorWalls : !dungeonish,
@@ -285,6 +316,7 @@ export function normalizePlan(input, { maxTiles = MAX_MAP_TILES } = {}) {
     });
   }
 
+  for (const st of plan.structures) if (st.upperFloors.length) st.storeys = 1 + st.upperFloors.length;
   mergeNestedStructures(plan, warn);
 
   for (const b of arr(input.barriers)) {
@@ -343,12 +375,12 @@ function cleanRaster(r, W, H, warn) {
       propDensity: clampNum(v.propDensity, 0, 1, 1),
       roof: v.roof ? pick(v.roof, ROOF_KINDS, 'none') : null,
       furnish: v.furnish ? pick(v.furnish, FURNISH_LEVELS, 'none') : null,
-      storeys: v.storeys ? clampInt(v.storeys, 1, 4, 1) : null,
+      storeys: v.storeys ? clampInt(v.storeys, 1, MAX_STOREYS, 1) : null,
       label: text(v.label),
     };
   }
   if (Object.keys(legend).length === 0) warn('raster has no legend; ignored');
-  return { rows, legend, storeys: clampInt(r.storeys, 1, 4, 1), roof: pick(r.roof, ROOF_KINDS, 'none'), furnish: pick(r.furnish, FURNISH_LEVELS, 'none') };
+  return { rows, legend, storeys: clampInt(r.storeys, 1, MAX_STOREYS, 1), roof: pick(r.roof, ROOF_KINDS, 'none'), furnish: pick(r.furnish, FURNISH_LEVELS, 'none') };
 }
 
 export function planStats(plan) {
@@ -357,7 +389,8 @@ export function planStats(plan) {
     areas: plan.areas.length,
     paths: plan.paths.length,
     structures: plan.structures.length,
-    rooms: plan.structures.reduce((n, s) => n + s.rooms.length, 0),
+    rooms: plan.structures.reduce((n, s) => n + s.rooms.length + (s.upperFloors || []).reduce((k, f) => k + f.rooms.length, 0), 0),
+    floors: plan.structures.reduce((n, s) => n + (s.storeys || 1), 0),
     barriers: plan.barriers.length,
     props: plan.props.length,
     scatter: plan.scatter.length,

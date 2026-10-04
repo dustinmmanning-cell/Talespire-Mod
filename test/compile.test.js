@@ -9,17 +9,20 @@ import { placedBounds, boxesOverlap } from '../src/core/geometry.js';
 import { buildSlabs } from '../src/core/build.js';
 import { chunkPlacements } from '../src/core/chunk.js';
 import { decodeSlab, MAX_SLAB_BYTES } from '../src/core/slab.js';
+import { renderPreviewSvg } from '../src/core/preview.js';
 
 const catalog = demoCatalog();
 const loadPlan = (name) => JSON.parse(readFileSync(new URL(`../examples/plans/${name}.json`, import.meta.url), 'utf8'));
 const kitFor = (plan) => new Kit(catalog, { style: plan.style });
 
+// Props on the same floor whose footprints overlap (props on different floors
+// are at different heights).
 function propOverlaps(result) {
   const boxes = result.placements
     .filter((p) => catalog.get(p.assetId).kind === 'prop')
-    .map((p) => placedBounds(catalog.get(p.assetId), p));
+    .map((p) => ({ b: placedBounds(catalog.get(p.assetId), p), f: p.meta.floor || 1 }));
   let n = 0;
-  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) if (boxesOverlap(boxes[i], boxes[j])) n++;
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) if (boxes[i].f === boxes[j].f && boxesOverlap(boxes[i].b, boxes[j].b)) n++;
   return n;
 }
 
@@ -141,7 +144,7 @@ test('plan normalization repairs bad input instead of failing', () => {
   assert.equal(plan.style, 'medieval');
   assert.equal(plan.structures.length, 1);
   assert.deepEqual(plan.structures[0].parts[0], { x: 0, y: 2, w: 5, h: 2 });
-  assert.equal(plan.structures[0].storeys, 4);
+  assert.equal(plan.structures[0].storeys, 6);
   assert.equal(plan.structures[0].doors[0].side, 's');
   assert.equal(plan.props.length, 1);
   assert.equal(plan.props[0].role, 'other');
@@ -262,4 +265,88 @@ test('open rooms get no walls; walled rooms keep theirs; nested rooms keep their
   assert.equal(room('Bar').cells, 12);
   assert.equal(room('Raised').cells, 12);
   assert.equal(room('Taproom').cells, 14 * 8 - 12 - 12);
+});
+
+// "A shanty-town halfway house with a soup kitchen, 4 storeys, like 4 cargo
+// containers stacked haphazardly": every floor has its own footprint, rooms
+// and furniture, stairs join each floor to the next where they overlap, and
+// uncovered parts of a lower floor get a flat roof.
+function containerStack() {
+  return {
+    title: 'The Rusted Ladle', summary: '', width: 20, height: 16, style: 'medieval', ground: 'dirt', areas: [], paths: [], barriers: [], props: [], scatter: [], notes: '',
+    structures: [{
+      id: 'ladle', label: 'Halfway house', kind: 'inn', parts: [{ x: 2, y: 8, w: 10, h: 4 }], interiorWalls: true,
+      rooms: [{ label: 'Soup kitchen', kind: 'kitchen', x: 2, y: 8, w: 4, h: 4 }, { label: 'Mess', kind: 'dining', x: 6, y: 8, w: 6, h: 4 }],
+      doors: [{ x: 8, y: 11, side: 's' }, { x: 5, y: 9, side: 'e' }],
+      upperFloors: [
+        // shifted right and up a tile; a door onto the kitchen's roof
+        { label: 'bunks', parts: [{ x: 4, y: 7, w: 10, h: 4 }], rooms: [{ label: 'Bunk room', kind: 'dormitory', x: 4, y: 7, w: 6, h: 4 }, { label: 'Store', kind: 'storage', x: 10, y: 7, w: 4, h: 4 }], doors: [{ x: 9, y: 8, side: 'e' }, { x: 5, y: 10, side: 's' }, { x: 13, y: 10, side: 'e' }] },
+        // turned 90 degrees
+        { label: 'crooked box', parts: [{ x: 6, y: 2, w: 4, h: 10 }], rooms: [{ label: 'Cell A', kind: 'bedroom', x: 6, y: 2, w: 4, h: 4 }, { label: 'Cell B', kind: 'bedroom', x: 6, y: 6, w: 4, h: 6 }], doors: [{ x: 7, y: 5, side: 's' }] },
+        { label: 'lookout', parts: [{ x: 3, y: 3, w: 10, h: 4 }], rooms: [], doors: [] },
+      ],
+      wall: 'wood', floor: 'wood_floor', storeys: 1, roof: 'flat', windows: 'few', furnish: 'normal',
+    }],
+  };
+}
+
+test('upper floors: own footprints, rooms, furniture, stairs and terrace roofs', () => {
+  const plan = containerStack();
+  const { plan: norm } = normalizePlan(plan);
+  assert.equal(norm.structures[0].storeys, 4, 'storeys follows upperFloors');
+  const r = compilePlan(plan, kitFor(plan));
+  const on = (f) => r.placements.filter((p) => (p.meta.floor || 1) === f);
+  const cellOf = (p) => (p.meta.cell ? `${p.meta.cell[0]},${p.meta.cell[1]}` : null);
+  const footprint = (parts) => new Set(parts.flatMap((q) => Array.from({ length: q.w * q.h }, (_, i) => `${q.x + (i % q.w)},${q.y + Math.floor(i / q.w)}`)));
+  const floorsParts = [plan.structures[0].parts, ...plan.structures[0].upperFloors.map((f) => f.parts)];
+  const wallH = Math.max(...on(1).filter((p) => p.meta.what === 'wall').map((p) => catalog.get(p.assetId).size.y));
+  for (let f = 1; f <= 4; f++) {
+    const ps = on(f);
+    assert.ok(ps.filter((p) => catalog.get(p.assetId).kind === 'prop').length >= 5, `floor ${f} is furnished`);
+    if (f > 1) {
+      // floor tiles cover this floor's footprint (minus the stairs hole) and nothing else
+      const fp = footprint(floorsParts[f - 1]);
+      const tiles = ps.filter((p) => p.meta.layer === 'ground');
+      assert.ok(tiles.every((p) => fp.has(cellOf(p))), `floor ${f} tiles inside its footprint`);
+      assert.ok(tiles.length >= fp.size - 2 && tiles.length < fp.size, `floor ${f}: ${tiles.length} tiles for ${fp.size} cells, minus the stairs hole`);
+      // walls start one storey up per floor
+      const minY = Math.min(...ps.filter((p) => p.meta.what === 'wall').map((p) => p.y));
+      const groundMinY = Math.min(...on(1).filter((p) => p.meta.what === 'wall').map((p) => p.y));
+      assert.ok(Math.abs(minY - groundMinY - (f - 1) * wallH) < 0.3, `floor ${f} walls at storey height (${minY} vs ${groundMinY} + ${(f - 1) * wallH})`);
+    }
+  }
+  // one flight per pair of floors
+  assert.equal(r.placements.filter((p) => p.meta.what === 'stairs').length, 3);
+  // flat roofs: exposed parts of floors 1-3, and all of the top floor
+  const roofs = (f) => on(f).filter((p) => p.meta.layer === 'roof').length;
+  assert.deepEqual([1, 2, 3, 4].map(roofs), [16, 24, 24, 40]);
+  // the door onto the kitchen roof is kept; the one onto thin air is not
+  const f2 = r.floors.find((x) => x.level === 2).grid;
+  assert.ok(f2.edges.some((e) => e.type === 'door' && e.x === 5 && e.y === 10 && e.side === 's'));
+  assert.ok(!f2.edges.some((e) => e.type === 'door' && e.x === 13 && e.side === 'e'));
+  assert.ok(r.warnings.some((w) => /door on Halfway house \(bunks\) at \(13,10\) leads nowhere/.test(w)));
+  // every room upstairs is reachable from the stairs, and props never overlap on a floor
+  assert.deepEqual(r.floors.map((x) => x.grid.rooms.map((rm) => rm.label)), [['Store', 'Bunk room'], ['Cell A', 'Cell B'], ['Halfway house (lookout)']]);
+  assert.equal(propOverlaps(r), 0);
+  assert.ok(!r.warnings.some((w) => /stairs/.test(w)), r.warnings.join('; '));
+});
+
+test('upper floors: a plain storey count repeats the ground floor with upstairs rooms', () => {
+  const plan = loadPlan('tavern');
+  const r = compilePlan(plan, kitFor(plan));
+  const upstairs = r.floors.map((f) => f.grid.rooms.map((rm) => rm.kind));
+  assert.equal(upstairs.length, plan.structures[0].storeys - 1);
+  assert.ok(upstairs[0].includes('dormitory') && !upstairs[0].includes('bar') && !upstairs[0].includes('kitchen'), upstairs[0].join());
+  assert.ok(r.placements.some((p) => p.meta.floor === 2 && catalog.get(p.assetId).kind === 'prop'), 'upstairs is furnished');
+  assert.ok(!r.warnings.some((w) => /leads nowhere/.test(w)), 'outer doors are not copied upstairs');
+  // the preview shows each upper floor as its own panel
+  const svg = renderPreviewSvg(r, { scale: 10 });
+  assert.match(svg, /floor 2<\/tspan>/);
+});
+
+test('upper floors: floors that do not overlap get a warning, not a crash', () => {
+  const plan = containerStack();
+  plan.structures[0].upperFloors[0].parts = [{ x: 14, y: 1, w: 4, h: 3 }];
+  const r = compilePlan(plan, kitFor(plan));
+  assert.ok(r.warnings.some((w) => /no room for stairs from floor 1 to floor 2/.test(w)));
 });

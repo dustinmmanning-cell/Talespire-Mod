@@ -39,7 +39,7 @@ Coordinates are in tiles (1 tile = 5 ft). (0, 0) is the top-left of the map; x g
 | `width`, `height`, `style`, `ground` | Map size, look (`medieval`, `castle`, `dungeon`, `cave`, `ruins`, `desert`, `swamp`, `winter`, …), and the base surface (`none` for dungeons and interiors) |
 | `areas[]` | Polygons painted over the ground in order: plazas, lakes, fields |
 | `paths[]` | Polylines with a width: streets, trails, rivers |
-| `structures[]` | Walled spaces: `parts` (union of rectangles), `rooms` (an `open` room has no walls of its own: a bar area or a stage inside a taproom), `doors` ({x, y, side}), `wall`/`floor` materials, `storeys`, `roof` (pitched/flat/none), `windows`, `interiorWalls`, `furnish` |
+| `structures[]` | Walled spaces: `parts` (union of rectangles), `rooms` (an `open` room has no walls of its own: a bar area or a stage inside a taproom), `doors` ({x, y, side}), `upperFloors` (each floor above the ground with its own `parts`, `rooms` and `doors`), `wall`/`floor` materials, `storeys`, `roof` (pitched/flat/none), `windows`, `interiorWalls`, `furnish` |
 | `barriers[]` | Free-standing walls along grid lines: fortifications (towers, gates), palisades, fences, hedges |
 | `props[]` | Placed objects: a `role` from a fixed vocabulary, plus an optional exact `asset` name from the GM's library |
 | `scatter[]` | Polygons filled with natural clutter at a density: forests, rocks, graveyards |
@@ -80,10 +80,12 @@ The **Kit** tab shows every resolution with game thumbnails and the reason it wa
 4. **Windows** go on exterior runs at a regular spacing, never at corners or beside doors.
 5. **Emit.**
    - Surfaces are top-aligned, merging into 2×2 tiles where possible. Natural surfaces get random quarter rotations to break up tiling.
-   - Walls are laid per storey along runs, using 2-long pieces where possible, with doors, windows and gates. Partitions appear only on the ground storey.
-   - Upper floors and stairs are added (stairs prefer corners).
-   - Roofs are flat, or **hip roofs by rings**: each course steps one cell in and one piece up, with outer corners, reflex corners and ridge caps.
-   - Towers, keeps and castles get crenellations.
+   - Walls are laid along runs, using 2-long pieces where possible, with doors, windows and gates.
+   - **Upper floors** are each compiled by their own builder, with the same steps as the ground floor (rooms, partitions, doors, windows, reachability, furniture), then lifted one storey per floor. A floor comes from the plan's `upperFloors`, or repeats the ground floor (walled rooms only, with upstairs kinds: a common room becomes bedrooms or a dormitory) when the plan gives only a storey count. Reachability starts from the stairs arriving from below. An outer door on an upper floor is kept only if it opens onto the roof of the floor below.
+   - **Stairs**: one flight per pair of floors, in cells both floors cover, inside one room on each floor and clear of doors. Flights stack in one stairwell when they fit; otherwise they prefer corners. The floor above gets a hole where the flight arrives.
+   - **Roofs**: the top floor gets the building's roof, either flat or a **hip roof by rings** (each course steps one cell in and one piece up, with outer corners, reflex corners and ridge caps). Parts of a lower floor that no floor covers get a flat roof.
+   - Towers, keeps and castles get crenellations on their top floor.
+   - The preview draws each upper floor as its own panel under the map, cropped to that floor.
    - Barriers get towers at corners, two-wide gates and crenellated courses. Fences and hedges are laid as props along the line.
 6. **Props**, highest priority first: the plan's explicit props (nudged in a small spiral if blocked), then **furniture** per room kind (wall-hugging items, center items, chairs around tables; `src/core/furnish.js`), then **scatter**.
    - A spatial hash prevents any two props from overlapping, since TaleSpire drops overlapping props on paste.
@@ -183,12 +185,12 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 ## Testing
 
-- `npm test`: 67 unit tests, covering:
+- `npm test`: 70 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - reading asset packs through the Symbiote API: skipping packs TaleSpire cannot describe, and accepting pack contents in shapes other than the documented arrays
   - kit resolution
-  - compiler guarantees: walls, doors, reachability, open-plan dungeons, open rooms and nested buildings, roofs, fortifications, no prop overlaps, floors on the grid, determinism
+  - compiler guarantees: walls, doors, reachability, open-plan dungeons, open rooms and nested buildings, upper floors (own footprints, stairs, terraces), roofs, fortifications, no prop overlaps, floors on the grid, determinism
   - chunking and registration
   - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, schema step-down on grammar-size errors, refusals, retries, quota errors, usage and cost
   - the plan and trace schemas against OpenAI's strict-mode rules
@@ -201,7 +203,8 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 - **Not yet run inside TaleSpire.** Everything was developed against the documented API and real slab data, but outside the game. Use the probes (Settings > Probes or `taleforge probe`) on a test board first. Please report what looks off.
 - **Furniture facing** is a setting until someone confirms it in-game; see the facing probe.
 - **No terrain height** yet: builds are flat ground with buildings, walls and roofs. Hills and cliffs are future work.
-- **Upper storeys are shells:** solid floors with stairs, no rooms or furniture.
+- **Floors stay on the grid:** an upper floor can be shifted, turned 90° or overhang the floor below, but not set at an odd angle. Overhangs float, with no posts underneath.
+- **Explicit props are ground-floor only:** upper floors get furniture from their room kinds, not from the plan's `props`.
 - **Roof kits** are recognised by name (Thatched, Village, Haunted). Other kits fall back to flat roofs.
 - **Large towns** become several slabs and need careful same-cell pasting, unless you use the multi-paste plugin.
 - **CORS from the Symbiote** relies on each API accepting calls from a web page (Anthropic's browser-access header; OpenAI allows browser calls, which its SDK supports with `dangerouslyAllowBrowser`). If TaleSpire's web view blocks either, use the proxy.

@@ -173,6 +173,15 @@ export const STRUCTURE_ROOM = {
   ruin: 'lair', dungeon: 'lair', cave: 'cavern', crypt: 'crypt', mine: 'cavern', room: 'other', other: 'other',
 };
 
+// Upstairs, when a plan only gives a storey count: ground-floor room kinds that
+// make no sense on an upper floor become one that does, and a building with no
+// rooms gets one upstairs room of this kind.
+export const UPPER_ROOM = { common: 'bedroom', bar: 'bedroom', kitchen: 'storage', shop: 'storage', stable: 'storage', forge: 'storage', corridor: 'corridor', stage: 'other' };
+export const UPPER_MAIN = {
+  house: 'bedroom', cottage: 'bedroom', manor: 'bedroom', tavern: 'dormitory', inn: 'dormitory', shop: 'bedroom', smithy: 'bedroom',
+  barn: 'storage', stable: 'storage', mill: 'storage', warehouse: 'storage', tower: 'storage', barracks: 'barracks',
+};
+
 // A one-room house gets a bit of everything.
 ROOM_FURNITURE.house = [
   { role: 'bed', at: 'wall', min: 1, max: 2, per: 16 },

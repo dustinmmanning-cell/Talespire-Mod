@@ -19,7 +19,7 @@ import {
   placeInCell, placeOnEdge, placeCentered, placedBounds, boxesOverlap, rotatedFootprint, edgeRotation, EDGE_ROT,
 } from './geometry.js';
 import { ROOF_EDGE_ROT, ROOF_CORNER_ROT } from './kit.js';
-import { furnitureRules, ruleCount, STRUCTURE_ROOM } from './furnish.js';
+import { furnitureRules, ruleCount, STRUCTURE_ROOM, UPPER_ROOM, UPPER_MAIN } from './furnish.js';
 import { makeRng, polygonCells, polylineCells, gridLineEdges } from './util.js';
 import { normalizePlacements, round2 } from './slab.js';
 
@@ -84,9 +84,10 @@ class Builder {
     this.placements = [];
     this.props = new Occupancy();
     this.doorClear = new Occupancy();
-    this.preview = { props: [], barriers: [], doors: [], windows: [] };
+    this.preview = { props: [], barriers: [], doors: [], windows: [], stairs: [] };
     this.missing = new Set();
     this.top = 0;
+    this.floors = []; // previews of upper floors: { structure, label, level, grid }
   }
 
   warn(m) {
@@ -260,7 +261,7 @@ class Builder {
       }
       const rest = S.cells.filter((c) => this.room[c] < 0);
       if (rest.length) {
-        const main = { id: this.rooms.length, s: S.index, label: def.label, kind: STRUCTURE_ROOM[def.kind] || 'other', cells: rest, main: true };
+        const main = { id: this.rooms.length, s: S.index, label: def.label, kind: def.mainKind || STRUCTURE_ROOM[def.kind] || 'other', cells: rest, main: true };
         if (def.rooms.length && def.interiorWalls) main.kind = 'corridor';
         for (const c of rest) this.room[c] = main.id;
         this.rooms.push(main);
@@ -414,10 +415,21 @@ class Builder {
     return out;
   }
 
+  // An upper floor's outer door must open onto the flat roof of the floor below.
+  upperDoorOk(S, c, side) {
+    const n = this.neighbor(c, side);
+    if (n < 0) return false;
+    return this.struct[n] === S.index || S.def.upper.terrace.has(n);
+  }
+
   placeDoors(S) {
     const def = S.def;
     for (const d of def.doors) {
       const c = this.idx(d.x, d.y);
+      if (def.upper) {
+        if (this.struct[c] !== S.index || !this.upperDoorOk(S, c, d.side) || !this.setDoor(c, d.side, S)) this.warn(`a door on ${def.label} at (${d.x},${d.y}) leads nowhere; skipped`);
+        continue;
+      }
       if (this.setDoor(c, d.side, S)) continue;
       // Snap to the nearest wall edge of this structure, preferring the same side.
       let best = null;
@@ -437,7 +449,7 @@ class Builder {
         }
       }
     }
-    if (S.doorCount === 0 && !def.synthetic) {
+    if (S.doorCount === 0 && !def.synthetic && !def.upper) {
       let best = null;
       const ext = this.exteriorEdges(S);
       for (const { c, side } of ext) {
@@ -484,6 +496,7 @@ class Builder {
         }
       }
       const startRooms = new Set();
+      if (S.def.upper) for (const c of S.def.upper.entry) if (this.room[c] >= 0) startRooms.add(this.room[c]);
       for (const { c, e } of this.exteriorEdges(S)) if (e.type === 'door') startRooms.add(this.room[c]);
       if (startRooms.size === 0) startRooms.add(S.rooms[0].id);
       const reached = new Set(startRooms);
@@ -660,8 +673,7 @@ class Builder {
     const flat = this.kit.flatRoof();
     for (const S of this.structures) {
       const def = S.def;
-      const storeys = def.storeys;
-      const Hs = S.height;
+      const floors = this.upperFloorsFor(S);
       if (S.wall) {
         const all = [];
         for (const c of S.cells) for (const side of SIDES4) {
@@ -669,101 +681,257 @@ class Builder {
           if (e) all.push({ x: c % this.W, y: (c / this.W) | 0, side, type: e.type, partition: e.partition });
         }
         if (!door && all.some((e) => e.type === 'door')) this.missing.add('door');
-        // Partitions only on the ground storey; upper storeys are shells.
-        for (let k = 0; k < storeys; k++) {
-          const edges = all
-            .filter((e) => k === 0 || !e.partition)
-            .map((e) => ({ ...e, type: k > 0 && e.type === 'door' ? 'wall' : e.type }));
-          this.emitWallEdges(edges, S.wall, this.top + k * Hs, 'structure', { door });
-        }
-        const crenel = def.roof === 'flat' && ['tower', 'keep', 'castle'].includes(def.kind) ? this.kit.crenellation() : null;
+        this.emitWallEdges(all, S.wall, this.top, 'structure', { door });
+        const topFloor = !floors.length && (!def.upper || def.upper.top);
+        const crenel = topFloor && def.roof === 'flat' && ['tower', 'keep', 'castle'].includes(def.kind) ? this.kit.crenellation() : null;
         if (crenel) {
           const parapet = all.filter((e) => !e.partition).map((e) => ({ ...e, type: 'wall' }));
-          this.emitWallEdges(parapet, { plain1: crenel, height: 0 }, this.top + storeys * Hs + (flat ? flat.size.y : 0), 'roof');
+          this.emitWallEdges(parapet, { plain1: crenel, height: 0 }, this.top + S.height + (flat ? flat.size.y : 0), 'roof');
         }
+      }
+      if (def.upper && def.upper.stairs) {
+        const p = this.emitStairs(def.upper.stairs, this.top);
+        if (p) this.props.add(placedBounds(this.kit.stairs(), p));
       }
       const floorR = this.kit.surface(def.floor);
-      const stairCells = storeys > 1 ? this.placeStairs(S) : new Set();
-      if (floorR) {
-        for (let k = 1; k < storeys; k++) {
-          for (const c of S.cells) {
-            if (stairCells.has(c)) continue;
-            const x = c % this.W;
-            const y = (c / this.W) | 0;
-            this.emit(placeInCell(floorR.base, x, this.tz(y), this.top + k * Hs - floorR.base.size.y, 0), 'structure', { cell: [x, y], what: 'upper-floor' });
-          }
-        }
+      if (!floors.length) {
+        this.emitRoof(S, flat, floorR, def.upper && def.upper.roofCells);
+        continue;
       }
-      this.emitRoof(S, flat, floorR);
+      this.emitUpperFloors(S, floors, flat, floorR);
     }
   }
 
-  placeStairs(S) {
-    const stairs = this.kit.stairs();
-    if (!stairs) {
-      this.missing.add('stairs');
-      return new Set();
+  // Floors above the ground: the plan's upperFloors, or the ground floor
+  // repeated (same footprint, its walled rooms, upstairs kinds) for a plan or
+  // traced structure that only gives a storey count.
+  upperFloorsFor(S) {
+    const def = S.def;
+    if (def.upper) return [];
+    if (def.upperFloors && def.upperFloors.length) {
+      return def.upperFloors.map((f, i) => ({ label: f.label || `floor ${i + 2}`, parts: f.parts, cells: null, rooms: f.rooms, doors: f.doors, mainKind: UPPER_MAIN[def.kind] }));
     }
-    const doorCells = new Set();
+    const out = [];
+    const inside = new Set(S.cells);
+    const interiorDoors = def.doors.filter((d) => this.inMap(d.x, d.y) && inside.has(this.neighbor(this.idx(d.x, d.y), d.side)));
+    for (let k = 1; k < def.storeys; k++) {
+      out.push({
+        label: `floor ${k + 1}`, parts: [], cells: S.cells.slice(),
+        rooms: def.rooms.filter((r) => !r.open).map((r) => {
+          const kind = UPPER_ROOM[r.kind] || r.kind;
+          return { ...r, kind: kind === 'bedroom' && r.w * r.h > 30 ? 'dormitory' : kind };
+        }),
+        doors: interiorDoors, mainKind: def.rooms.length ? null : UPPER_MAIN[def.kind],
+      });
+    }
+    return out;
+  }
+
+  floorCells(f) {
+    const set = new Set(f.cells || []);
+    for (const r of f.parts) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (this.inMap(x, y)) set.add(this.idx(x, y));
+    return set;
+  }
+
+  // Room of every cell of a floor, as rasterizeStructures will assign it
+  // (smaller rooms first; -1 for the leftover main room).
+  floorRooms(f, cells) {
+    const map = new Map();
+    const byArea = f.rooms.map((r, i) => ({ r, i })).sort((a, b) => a.r.w * a.r.h - b.r.w * b.r.h || a.i - b.i);
+    for (const { r, i } of byArea) {
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+        const c = this.inMap(x, y) ? this.idx(x, y) : -1;
+        if (cells.has(c) && !map.has(c)) map.set(c, i);
+      }
+    }
+    for (const c of cells) if (!map.has(c)) map.set(c, -1);
+    return map;
+  }
+
+  emitUpperFloors(S, floors, flat, floorR) {
+    const def = S.def;
+    const Hs = S.height;
+    const levels = [{ cells: new Set(S.cells), rooms: new Map(S.cells.map((c) => [c, this.room[c]])), doorCells: this.doorCellsOf(S) }];
+    for (const f of floors) {
+      const cells = this.floorCells(f);
+      const doorCells = new Set();
+      for (const d of f.doors) {
+        if (!this.inMap(d.x, d.y)) continue;
+        const c = this.idx(d.x, d.y);
+        doorCells.add(c);
+        const n = this.neighbor(c, d.side);
+        if (n >= 0) doorCells.add(n);
+      }
+      levels.push({ cells, rooms: this.floorRooms(f, cells), doorCells });
+    }
+    const stairs = this.planStairs(S, levels);
+    if (stairs[0]) {
+      const p = this.emitStairs(stairs[0], this.top);
+      if (p) this.props.add(placedBounds(this.kit.stairs(), p));
+    }
+    // the ground floor's roof is the floor above, except where it sticks out
+    const exposed = [...levels[0].cells].filter((c) => !levels[1].cells.has(c));
+    if (def.roof !== 'none' && S.wall) this.emitFlatRoof(exposed, this.top + Hs, flat, floorR);
+
+    floors.forEach((f, i) => {
+      const level = i + 1;
+      const top = level === floors.length;
+      const below = levels[level - 1].cells;
+      const cells = levels[level].cells;
+      const arrive = stairs[level - 1] ? stairs[level - 1].cells : new Set();
+      const sub = {
+        id: `${def.id}_f${level + 1}`, label: `${def.label} (${f.label})`, kind: def.kind,
+        parts: f.parts, cells: f.cells, rooms: f.rooms, doors: f.doors, mainKind: f.mainKind,
+        wall: def.wall, floor: def.floor, storeys: 1, roof: top ? def.roof : def.roof === 'none' ? 'none' : 'flat',
+        windows: def.windows, interiorWalls: def.interiorWalls, furnish: def.furnish,
+        upper: {
+          top, entry: arrive, holes: arrive, arrive: stairs[level - 1] || null,
+          terrace: new Set([...below].filter((c) => !cells.has(c))),
+          stairs: stairs[level] || null,
+          roofCells: top ? null : [...cells].filter((c) => !levels[level + 1].cells.has(c)),
+        },
+      };
+      this.compileUpperFloor(sub, this.top + level * Hs, level + 1, def.label);
+    });
+  }
+
+  doorCellsOf(S) {
+    const out = new Set();
     for (const c of S.cells) for (const side of SIDES4) {
       const e = this.edges.get(`${c}:${side}`);
       if (e && e.type === 'door') {
-        doorCells.add(c);
+        out.add(c);
         const n = this.neighbor(c, side);
-        if (n >= 0) doorCells.add(n);
+        if (n >= 0) out.add(n);
       }
+    }
+    return out;
+  }
+
+  // One stair flight per pair of floors, in cells both floors cover, within one
+  // room on each, clear of doors and of the flight arriving from below. Stacks
+  // flights in one stairwell when it fits; otherwise prefers corners.
+  planStairs(S, levels) {
+    const stairs = this.kit.stairs();
+    const out = [];
+    if (!stairs) {
+      this.missing.add('stairs');
+      return out;
     }
     const fx = Math.max(1, Math.round(stairs.size.x));
     const fz = Math.max(1, Math.round(stairs.size.z));
-    // Prefer a corner: try cells in order of how many walls they touch.
-    const ranked = S.cells
-      .map((c) => [SIDES4.filter((s) => this.edges.has(`${c}:${s}`)).length, c])
-      .sort((a, b) => b[0] - a[0] || a[1] - b[1]);
-    for (const [, c] of ranked) {
-      const x = c % this.W;
-      const y = (c / this.W) | 0;
-      for (const rot of [0, 6]) {
-        const w = rot === 0 ? fx : fz;
-        const h = rot === 0 ? fz : fx;
-        const cells = [];
-        let ok = true;
-        for (let dy = 0; dy < h && ok; dy++) for (let dx = 0; dx < w && ok; dx++) {
-          if (!this.inMap(x + dx, y + dy)) ok = false;
-          else {
-            const k = this.idx(x + dx, y + dy);
-            if (this.struct[k] !== S.index || doorCells.has(k) || this.room[k] !== this.room[c]) ok = false;
-            cells.push(k);
-          }
-        }
-        if (!ok) continue;
-        for (let k = 0; k < S.def.storeys - 1; k++) {
-          const p = this.emit(placeInCell(stairs, x, this.H - h - y, this.top + k * S.height, rot), 'structure', { cell: [x, y], what: 'stairs' });
-          if (k === 0) this.props.add(placedBounds(stairs, p));
-        }
-        return new Set(cells);
+    const fits = (x, y, rot, lower, upper, avoid) => {
+      const w = rot === 0 ? fx : fz;
+      const h = rot === 0 ? fz : fx;
+      const cells = new Set();
+      let roomLo = null;
+      let roomUp = null;
+      for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
+        if (!this.inMap(x + dx, y + dy)) return null;
+        const k = this.idx(x + dx, y + dy);
+        if (!lower.cells.has(k) || !upper.cells.has(k) || lower.doorCells.has(k) || upper.doorCells.has(k) || avoid.has(k)) return null;
+        const a = lower.rooms.get(k);
+        const b = upper.rooms.get(k);
+        if (roomLo === null) {
+          roomLo = a;
+          roomUp = b;
+        } else if (a !== roomLo || b !== roomUp) return null;
+        cells.add(k);
       }
+      return { x, y, rot, w, h, cells };
+    };
+    for (let t = 0; t + 1 < levels.length; t++) {
+      const lower = levels[t];
+      const upper = levels[t + 1];
+      const prev = out[t - 1];
+      let found = prev ? fits(prev.x, prev.y, prev.rot, lower, upper, new Set()) : null;
+      if (!found) {
+        const avoid = prev ? prev.cells : new Set();
+        const ranked = [...lower.cells]
+          .filter((c) => upper.cells.has(c))
+          .map((c) => [SIDES4.filter((sd) => !lower.cells.has(this.neighbor(c, sd)) || !upper.cells.has(this.neighbor(c, sd))).length, c])
+          .sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+        for (const [, c] of ranked) {
+          for (const rot of [0, 6]) {
+            found = fits(c % this.W, (c / this.W) | 0, rot, lower, upper, avoid);
+            if (found) break;
+          }
+          if (found) break;
+        }
+      }
+      if (!found) this.warn(`no room for stairs from floor ${t + 1} to floor ${t + 2} of ${S.def.label} (the floors need to overlap)`);
+      out.push(found);
     }
-    this.warn(`no room for stairs in ${S.def.label}`);
-    return new Set();
+    return out;
   }
 
-  emitRoof(S, flat, floorR) {
+  emitStairs(st, baseY) {
+    const stairs = this.kit.stairs();
+    if (!stairs || !st) return null;
+    this.preview.stairs.push({ x: st.x, y: st.y, w: st.w, h: st.h });
+    return this.emit(placeInCell(stairs, st.x, this.H - st.h - st.y, baseY, st.rot), 'structure', { cell: [st.x, st.y], what: 'stairs' });
+  }
+
+  emitFlatRoof(cells, baseY, flat, floorR) {
+    const piece = flat || (floorR && floorR.base);
+    if (!piece) return;
+    for (const c of cells) {
+      const x = c % this.W;
+      const y = (c / this.W) | 0;
+      this.emit(placeInCell(piece, x, this.tz(y), baseY, 0), 'roof', { cell: [x, y] });
+    }
+  }
+
+  // Build one upper floor with its own builder (rooms, walls, doors, windows,
+  // reachability, furniture), then lift it to its height.
+  compileUpperFloor(sub, baseY, floorNo, structureLabel) {
+    const plan = { ...this.plan, ground: 'none', areas: [], paths: [], barriers: [], props: [], scatter: [], raster: null, structures: [sub] };
+    const b = new Builder(plan, this.kit, { ...this.opts, seed: `${this.opts.seed}:${sub.id}` }, []);
+    b.barrierEdges = [];
+    b.rasterizeStructures();
+    for (const c of sub.upper.holes) b.surf[c] = null;
+    b.computeEdges();
+    b.computeTop();
+    b.emitSurfaces();
+    b.emitStructures();
+    for (const c of sub.upper.holes) {
+      const x = c % b.W;
+      const z = b.tz((c / b.W) | 0);
+      b.props.add([x + 0.02, z + 0.02, x + 0.98, z + 0.98]);
+    }
+    if (sub.upper.arrive) {
+      const a = sub.upper.arrive;
+      b.preview.stairs.push({ x: a.x, y: a.y, w: a.w, h: a.h, arrive: true });
+    }
+    b.markDoorways();
+    b.emitFurniture();
+    const dy = baseY - b.top;
+    for (const p of b.placements) {
+      p.y = round2(p.y + dy);
+      p.meta.floor = floorNo;
+      this.placements.push(p);
+    }
+    for (const w of b.warnings) this.warn(w);
+    for (const m of b.missing) this.missing.add(m);
+    const r = b.gridSnapshot();
+    this.floors.push({ structure: structureLabel, label: sub.label, level: floorNo, grid: r });
+  }
+
+  emitRoof(S, flat, floorR, cells = null) {
     const def = S.def;
     if (def.roof === 'none' || !S.wall) return;
-    const baseY = this.top + def.storeys * S.height;
+    const baseY = this.top + S.height;
+    if (cells) {
+      this.emitFlatRoof(cells, baseY, flat, floorR);
+      return;
+    }
     const kit = def.roof === 'pitched' ? this.kit.roofKit() : null;
     if (def.roof === 'pitched' && !kit) this.missing.add('pitched roof kit');
     if (kit) {
       this.emitPitchedRoof(S, kit, baseY);
       return;
     }
-    const piece = flat || (floorR && floorR.base);
-    if (!piece) return;
-    for (const c of S.cells) {
-      const x = c % this.W;
-      const y = (c / this.W) | 0;
-      this.emit(placeInCell(piece, x, this.tz(y), baseY, 0), 'roof', { cell: [x, y] });
-    }
+    this.emitFlatRoof(S.cells, baseY, flat, floorR);
   }
 
   // Hip roof by rings: each course steps one cell in and one piece up.
@@ -1125,20 +1293,25 @@ class Builder {
       warnings: this.warnings,
       kitReport: this.kit.report(),
       stats: { total: placements.length, tiles, props, distinctAssets: distinct.size, byLayer, top: this.top },
-      grid: {
-        width: this.W,
-        height: this.H,
-        surf: this.surf,
-        struct: Array.from(this.struct),
-        room: Array.from(this.room),
-        structures: this.structures.map((S) => ({ id: S.def.id, label: S.def.label, kind: S.def.kind, storeys: S.def.storeys, roof: S.def.roof, cells: S.cells, synthetic: !!S.def.synthetic })),
-        rooms: this.rooms.map((r) => ({ id: r.id, label: r.label, kind: r.kind, s: r.s, cells: r.cells.length, ...(r.open ? { open: true } : {}) })),
-        edges: [...this.edges].map(([k, e]) => {
-          const [c, side] = k.split(':');
-          return { x: Number(c) % this.W, y: (Number(c) / this.W) | 0, side, type: e.type, partition: e.partition };
-        }),
-        ...this.preview,
-      },
+      grid: this.gridSnapshot(),
+      floors: this.floors,
+    };
+  }
+
+  gridSnapshot() {
+    return {
+      width: this.W,
+      height: this.H,
+      surf: this.surf,
+      struct: Array.from(this.struct),
+      room: Array.from(this.room),
+      structures: this.structures.map((S) => ({ id: S.def.id, label: S.def.label, kind: S.def.kind, storeys: S.def.storeys, roof: S.def.roof, cells: S.cells, synthetic: !!S.def.synthetic })),
+      rooms: this.rooms.map((r) => ({ id: r.id, label: r.label, kind: r.kind, s: r.s, cells: r.cells.length, ...(r.open ? { open: true } : {}) })),
+      edges: [...this.edges].map(([k, e]) => {
+        const [c, side] = k.split(':');
+        return { x: Number(c) % this.W, y: (Number(c) / this.W) | 0, side, type: e.type, partition: e.partition };
+      }),
+      ...this.preview,
     };
   }
 }

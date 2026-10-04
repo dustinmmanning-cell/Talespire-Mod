@@ -1379,6 +1379,16 @@
       h: int('height in tiles (>= 1)'),
     };
 
+    const MAX_STOREYS = 6;
+
+    const roomItem = obj({
+      label: str('room name'),
+      kind: en(ROOM_KINDS, 'room purpose; drives furniture'),
+      ...rectProps,
+      open: { type: 'boolean', description: 'true: no walls around this room, even with interiorWalls true. Use for an area that is part of a bigger room: a bar counter area or a stage in a taproom, a dais in a hall, an alcove, a seating nook. Put it inside the bigger room.' },
+    });
+    const doorItem = obj({ x: int('tile x inside the structure'), y: int('tile y inside the structure'), side: en(SIDES, 'which side of that tile') });
+
     // JSON Schema for structured outputs: closed objects, every property required,
     // no numeric/length constraints (unsupported) -- ranges are enforced by the
     // normalizer instead.
@@ -1422,22 +1432,27 @@
           },
           rooms: {
             type: 'array',
-            description: 'named rooms inside the footprint (may be empty). With interiorWalls true, walls separate rooms, except around open rooms.',
-            items: obj({
-              label: str('room name'),
-              kind: en(ROOM_KINDS, 'room purpose; drives furniture'),
-              ...rectProps,
-              open: { type: 'boolean', description: 'true: no walls around this room, even with interiorWalls true. Use for an area that is part of a bigger room: a bar counter area or a stage in a taproom, a dais in a hall, an alcove, a seating nook. Put it inside the bigger room.' },
-            }),
+            description: 'named rooms of the ground floor (may be empty). With interiorWalls true, walls separate rooms, except around open rooms.',
+            items: roomItem,
           },
           doors: {
             type: 'array',
-            description: 'doors, each on one side of a tile inside the footprint; exterior doors face outside, interior doors sit between two rooms',
-            items: obj({ x: int('tile x inside the structure'), y: int('tile y inside the structure'), side: en(SIDES, 'which side of that tile') }),
+            description: 'ground-floor doors, each on one side of a tile inside the footprint; exterior doors face outside, interior doors sit between two rooms',
+            items: doorItem,
+          },
+          upperFloors: {
+            type: 'array',
+            description: 'floors above the ground floor, bottom to top (empty for a one-storey building). Each has its own footprint, rooms and doors, so floors can differ: smaller, shifted, turned 90 degrees, overhanging. Each must overlap the floor below by at least 2x2 tiles; stairs go in the overlap.',
+            items: obj({
+              label: str('what this floor is, e.g. "guest rooms"'),
+              parts: { type: 'array', description: 'footprint of this floor as a union of rectangles, in the same map coordinates as the ground floor', items: obj(rectProps) },
+              rooms: { type: 'array', description: 'rooms on this floor', items: roomItem },
+              doors: { type: 'array', description: 'doors on this floor: between its rooms, or on an outer wall onto the flat roof of the floor below (a terrace)', items: doorItem },
+            }),
           },
           wall: en([...WALL_MATERIALS, 'none'], "wall material; 'none' for open pavilions"),
           floor: en(SURFACES, 'floor surface inside'),
-          storeys: int('number of floors above ground, 1..4'),
+          storeys: int(`number of floors including the ground floor, 1..${MAX_STOREYS}; with upperFloors it is 1 + their count`),
           roof: en(ROOF_KINDS, "'pitched' for most buildings, 'flat' for towers, keeps and desert houses; 'none' only for dungeons, caves, ruins, open pavilions, or when asked for no roof"),
           windows: en(WINDOW_LEVELS, 'how many exterior windows'),
           interiorWalls: { type: 'boolean', description: 'true: walls between rooms (houses, inns). false: rooms are open to each other (dungeon rooms + corridors joined by doorways)' },
@@ -1504,6 +1519,21 @@
     };
     const text = (v, dflt = '') => (typeof v === 'string' ? v.slice(0, 2000) : dflt);
     const arr = (v) => (Array.isArray(v) ? v : []);
+
+    function cleanRooms(list, W, H) {
+      return arr(list)
+        .map((r) => {
+          const rect = r && typeof r === 'object' ? cleanRect(r, W, H) : null;
+          return rect ? { label: text(r.label), kind: pick(r.kind, ROOM_KINDS, 'other'), ...rect, open: r.open === true } : null;
+        })
+        .filter(Boolean);
+    }
+
+    function cleanDoors(list, W, H) {
+      return arr(list)
+        .map((d) => (d && typeof d === 'object' ? { x: clampInt(d.x, 0, W - 1, 0), y: clampInt(d.y, 0, H - 1, 0), side: pick(d.side, SIDES, 's') } : null))
+        .filter(Boolean);
+    }
 
     function cleanPoint(p, W, H, pad = 0) {
       if (!Array.isArray(p) || p.length < 2) return null;
@@ -1593,18 +1623,19 @@
           label: text(s.label, id),
           kind,
           parts,
-          rooms: arr(s.rooms)
-            .map((r) => {
-              const rect = cleanRect(r, W, H);
-              return rect ? { label: text(r.label), kind: pick(r.kind, ROOM_KINDS, 'other'), ...rect, open: r.open === true } : null;
-            })
-            .filter(Boolean),
-          doors: arr(s.doors)
-            .map((d) => (d && typeof d === 'object' ? { x: clampInt(d.x, 0, W - 1, 0), y: clampInt(d.y, 0, H - 1, 0), side: pick(d.side, SIDES, 's') } : null))
-            .filter(Boolean),
+          rooms: cleanRooms(s.rooms, W, H),
+          doors: cleanDoors(s.doors, W, H),
+          upperFloors: arr(s.upperFloors).slice(0, MAX_STOREYS - 1).map((f, i) => {
+            const fparts = arr(f && f.parts).map((r) => cleanRect(r, W, H)).filter(Boolean);
+            if (!fparts.length) {
+              warn(`floor ${i + 2} of "${s.label || id}" dropped: no part inside the map`);
+              return null;
+            }
+            return { label: text(f.label), parts: fparts, rooms: cleanRooms(f.rooms, W, H), doors: cleanDoors(f.doors, W, H) };
+          }).filter(Boolean),
           wall: pick(s.wall, [...WALL_MATERIALS, 'none'], preset.wall),
           floor: pick(s.floor, SURFACES, preset.floor),
-          storeys: clampInt(s.storeys, 1, 4, 1),
+          storeys: clampInt(s.storeys, 1, MAX_STOREYS, 1),
           roof: pick(s.roof, ROOF_KINDS, dungeonish ? 'none' : preset.roof),
           windows: pick(s.windows, WINDOW_LEVELS, dungeonish ? 'none' : 'few'),
           interiorWalls: typeof s.interiorWalls === 'boolean' ? s.interiorWalls : !dungeonish,
@@ -1612,6 +1643,7 @@
         });
       }
 
+      for (const st of plan.structures) if (st.upperFloors.length) st.storeys = 1 + st.upperFloors.length;
       mergeNestedStructures(plan, warn);
 
       for (const b of arr(input.barriers)) {
@@ -1670,12 +1702,12 @@
           propDensity: clampNum(v.propDensity, 0, 1, 1),
           roof: v.roof ? pick(v.roof, ROOF_KINDS, 'none') : null,
           furnish: v.furnish ? pick(v.furnish, FURNISH_LEVELS, 'none') : null,
-          storeys: v.storeys ? clampInt(v.storeys, 1, 4, 1) : null,
+          storeys: v.storeys ? clampInt(v.storeys, 1, MAX_STOREYS, 1) : null,
           label: text(v.label),
         };
       }
       if (Object.keys(legend).length === 0) warn('raster has no legend; ignored');
-      return { rows, legend, storeys: clampInt(r.storeys, 1, 4, 1), roof: pick(r.roof, ROOF_KINDS, 'none'), furnish: pick(r.furnish, FURNISH_LEVELS, 'none') };
+      return { rows, legend, storeys: clampInt(r.storeys, 1, MAX_STOREYS, 1), roof: pick(r.roof, ROOF_KINDS, 'none'), furnish: pick(r.furnish, FURNISH_LEVELS, 'none') };
     }
 
     function  planStats(plan) {
@@ -1684,7 +1716,8 @@
         areas: plan.areas.length,
         paths: plan.paths.length,
         structures: plan.structures.length,
-        rooms: plan.structures.reduce((n, s) => n + s.rooms.length, 0),
+        rooms: plan.structures.reduce((n, s) => n + s.rooms.length + (s.upperFloors || []).reduce((k, f) => k + f.rooms.length, 0), 0),
+        floors: plan.structures.reduce((n, s) => n + (s.storeys || 1), 0),
         barriers: plan.barriers.length,
         props: plan.props.length,
         scatter: plan.scatter.length,
@@ -1733,7 +1766,7 @@
       return merged.size;
     }
 
-    return { PLAN_VERSION, MAX_MAP_TILES, STRUCTURE_KINDS, ROOM_KINDS, ROOF_KINDS, FURNISH_LEVELS, WINDOW_LEVELS, SIDES, BARRIER_KINDS, PLAN_SCHEMA, normalizePlan, planStats, mergeNestedStructures };
+    return { PLAN_VERSION, MAX_MAP_TILES, STRUCTURE_KINDS, ROOM_KINDS, ROOF_KINDS, FURNISH_LEVELS, WINDOW_LEVELS, SIDES, BARRIER_KINDS, MAX_STOREYS, PLAN_SCHEMA, normalizePlan, planStats, mergeNestedStructures };
   })();
   // ---- furnish.js ----
   __m['furnish'] = (function () {
@@ -1912,6 +1945,15 @@
       ruin: 'lair', dungeon: 'lair', cave: 'cavern', crypt: 'crypt', mine: 'cavern', room: 'other', other: 'other',
     };
 
+    // Upstairs, when a plan only gives a storey count: ground-floor room kinds that
+    // make no sense on an upper floor become one that does, and a building with no
+    // rooms gets one upstairs room of this kind.
+    const UPPER_ROOM = { common: 'bedroom', bar: 'bedroom', kitchen: 'storage', shop: 'storage', stable: 'storage', forge: 'storage', corridor: 'corridor', stage: 'other' };
+    const UPPER_MAIN = {
+      house: 'bedroom', cottage: 'bedroom', manor: 'bedroom', tavern: 'dormitory', inn: 'dormitory', shop: 'bedroom', smithy: 'bedroom',
+      barn: 'storage', stable: 'storage', mill: 'storage', warehouse: 'storage', tower: 'storage', barracks: 'barracks',
+    };
+
     // A one-room house gets a bit of everything.
     ROOM_FURNITURE.house = [
       { role: 'bed', at: 'wall', min: 1, max: 2, per: 16 },
@@ -1942,7 +1984,7 @@
       return Math.max(min, Math.min(max, n));
     }
 
-    return { ROOM_FURNITURE, STRUCTURE_ROOM, FURNISH_FACTOR, furnitureRules, ruleCount };
+    return { ROOM_FURNITURE, STRUCTURE_ROOM, UPPER_ROOM, UPPER_MAIN, FURNISH_FACTOR, furnitureRules, ruleCount };
   })();
   // ---- util.js ----
   __m['util'] = (function () {
@@ -2116,7 +2158,7 @@
     const { normalizePlan } = __m['plan'];
     const { placeInCell, placeOnEdge, placeCentered, placedBounds, boxesOverlap, rotatedFootprint, edgeRotation, EDGE_ROT } = __m['geometry'];
     const { ROOF_EDGE_ROT, ROOF_CORNER_ROT } = __m['kit'];
-    const { furnitureRules, ruleCount, STRUCTURE_ROOM } = __m['furnish'];
+    const { furnitureRules, ruleCount, STRUCTURE_ROOM, UPPER_ROOM, UPPER_MAIN } = __m['furnish'];
     const { makeRng, polygonCells, polylineCells, gridLineEdges } = __m['util'];
     const { normalizePlacements, round2 } = __m['slab'];
     const SIDES4 = ['n', 'e', 's', 'w'];
@@ -2180,9 +2222,10 @@
         this.placements = [];
         this.props = new Occupancy();
         this.doorClear = new Occupancy();
-        this.preview = { props: [], barriers: [], doors: [], windows: [] };
+        this.preview = { props: [], barriers: [], doors: [], windows: [], stairs: [] };
         this.missing = new Set();
         this.top = 0;
+        this.floors = []; // previews of upper floors: { structure, label, level, grid }
       }
 
       warn(m) {
@@ -2356,7 +2399,7 @@
           }
           const rest = S.cells.filter((c) => this.room[c] < 0);
           if (rest.length) {
-            const main = { id: this.rooms.length, s: S.index, label: def.label, kind: STRUCTURE_ROOM[def.kind] || 'other', cells: rest, main: true };
+            const main = { id: this.rooms.length, s: S.index, label: def.label, kind: def.mainKind || STRUCTURE_ROOM[def.kind] || 'other', cells: rest, main: true };
             if (def.rooms.length && def.interiorWalls) main.kind = 'corridor';
             for (const c of rest) this.room[c] = main.id;
             this.rooms.push(main);
@@ -2510,10 +2553,21 @@
         return out;
       }
 
+      // An upper floor's outer door must open onto the flat roof of the floor below.
+      upperDoorOk(S, c, side) {
+        const n = this.neighbor(c, side);
+        if (n < 0) return false;
+        return this.struct[n] === S.index || S.def.upper.terrace.has(n);
+      }
+
       placeDoors(S) {
         const def = S.def;
         for (const d of def.doors) {
           const c = this.idx(d.x, d.y);
+          if (def.upper) {
+            if (this.struct[c] !== S.index || !this.upperDoorOk(S, c, d.side) || !this.setDoor(c, d.side, S)) this.warn(`a door on ${def.label} at (${d.x},${d.y}) leads nowhere; skipped`);
+            continue;
+          }
           if (this.setDoor(c, d.side, S)) continue;
           // Snap to the nearest wall edge of this structure, preferring the same side.
           let best = null;
@@ -2533,7 +2587,7 @@
             }
           }
         }
-        if (S.doorCount === 0 && !def.synthetic) {
+        if (S.doorCount === 0 && !def.synthetic && !def.upper) {
           let best = null;
           const ext = this.exteriorEdges(S);
           for (const { c, side } of ext) {
@@ -2580,6 +2634,7 @@
             }
           }
           const startRooms = new Set();
+          if (S.def.upper) for (const c of S.def.upper.entry) if (this.room[c] >= 0) startRooms.add(this.room[c]);
           for (const { c, e } of this.exteriorEdges(S)) if (e.type === 'door') startRooms.add(this.room[c]);
           if (startRooms.size === 0) startRooms.add(S.rooms[0].id);
           const reached = new Set(startRooms);
@@ -2756,8 +2811,7 @@
         const flat = this.kit.flatRoof();
         for (const S of this.structures) {
           const def = S.def;
-          const storeys = def.storeys;
-          const Hs = S.height;
+          const floors = this.upperFloorsFor(S);
           if (S.wall) {
             const all = [];
             for (const c of S.cells) for (const side of SIDES4) {
@@ -2765,101 +2819,257 @@
               if (e) all.push({ x: c % this.W, y: (c / this.W) | 0, side, type: e.type, partition: e.partition });
             }
             if (!door && all.some((e) => e.type === 'door')) this.missing.add('door');
-            // Partitions only on the ground storey; upper storeys are shells.
-            for (let k = 0; k < storeys; k++) {
-              const edges = all
-                .filter((e) => k === 0 || !e.partition)
-                .map((e) => ({ ...e, type: k > 0 && e.type === 'door' ? 'wall' : e.type }));
-              this.emitWallEdges(edges, S.wall, this.top + k * Hs, 'structure', { door });
-            }
-            const crenel = def.roof === 'flat' && ['tower', 'keep', 'castle'].includes(def.kind) ? this.kit.crenellation() : null;
+            this.emitWallEdges(all, S.wall, this.top, 'structure', { door });
+            const topFloor = !floors.length && (!def.upper || def.upper.top);
+            const crenel = topFloor && def.roof === 'flat' && ['tower', 'keep', 'castle'].includes(def.kind) ? this.kit.crenellation() : null;
             if (crenel) {
               const parapet = all.filter((e) => !e.partition).map((e) => ({ ...e, type: 'wall' }));
-              this.emitWallEdges(parapet, { plain1: crenel, height: 0 }, this.top + storeys * Hs + (flat ? flat.size.y : 0), 'roof');
+              this.emitWallEdges(parapet, { plain1: crenel, height: 0 }, this.top + S.height + (flat ? flat.size.y : 0), 'roof');
             }
+          }
+          if (def.upper && def.upper.stairs) {
+            const p = this.emitStairs(def.upper.stairs, this.top);
+            if (p) this.props.add(placedBounds(this.kit.stairs(), p));
           }
           const floorR = this.kit.surface(def.floor);
-          const stairCells = storeys > 1 ? this.placeStairs(S) : new Set();
-          if (floorR) {
-            for (let k = 1; k < storeys; k++) {
-              for (const c of S.cells) {
-                if (stairCells.has(c)) continue;
-                const x = c % this.W;
-                const y = (c / this.W) | 0;
-                this.emit(placeInCell(floorR.base, x, this.tz(y), this.top + k * Hs - floorR.base.size.y, 0), 'structure', { cell: [x, y], what: 'upper-floor' });
-              }
-            }
+          if (!floors.length) {
+            this.emitRoof(S, flat, floorR, def.upper && def.upper.roofCells);
+            continue;
           }
-          this.emitRoof(S, flat, floorR);
+          this.emitUpperFloors(S, floors, flat, floorR);
         }
       }
 
-      placeStairs(S) {
-        const stairs = this.kit.stairs();
-        if (!stairs) {
-          this.missing.add('stairs');
-          return new Set();
+      // Floors above the ground: the plan's upperFloors, or the ground floor
+      // repeated (same footprint, its walled rooms, upstairs kinds) for a plan or
+      // traced structure that only gives a storey count.
+      upperFloorsFor(S) {
+        const def = S.def;
+        if (def.upper) return [];
+        if (def.upperFloors && def.upperFloors.length) {
+          return def.upperFloors.map((f, i) => ({ label: f.label || `floor ${i + 2}`, parts: f.parts, cells: null, rooms: f.rooms, doors: f.doors, mainKind: UPPER_MAIN[def.kind] }));
         }
-        const doorCells = new Set();
+        const out = [];
+        const inside = new Set(S.cells);
+        const interiorDoors = def.doors.filter((d) => this.inMap(d.x, d.y) && inside.has(this.neighbor(this.idx(d.x, d.y), d.side)));
+        for (let k = 1; k < def.storeys; k++) {
+          out.push({
+            label: `floor ${k + 1}`, parts: [], cells: S.cells.slice(),
+            rooms: def.rooms.filter((r) => !r.open).map((r) => {
+              const kind = UPPER_ROOM[r.kind] || r.kind;
+              return { ...r, kind: kind === 'bedroom' && r.w * r.h > 30 ? 'dormitory' : kind };
+            }),
+            doors: interiorDoors, mainKind: def.rooms.length ? null : UPPER_MAIN[def.kind],
+          });
+        }
+        return out;
+      }
+
+      floorCells(f) {
+        const set = new Set(f.cells || []);
+        for (const r of f.parts) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (this.inMap(x, y)) set.add(this.idx(x, y));
+        return set;
+      }
+
+      // Room of every cell of a floor, as rasterizeStructures will assign it
+      // (smaller rooms first; -1 for the leftover main room).
+      floorRooms(f, cells) {
+        const map = new Map();
+        const byArea = f.rooms.map((r, i) => ({ r, i })).sort((a, b) => a.r.w * a.r.h - b.r.w * b.r.h || a.i - b.i);
+        for (const { r, i } of byArea) {
+          for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+            const c = this.inMap(x, y) ? this.idx(x, y) : -1;
+            if (cells.has(c) && !map.has(c)) map.set(c, i);
+          }
+        }
+        for (const c of cells) if (!map.has(c)) map.set(c, -1);
+        return map;
+      }
+
+      emitUpperFloors(S, floors, flat, floorR) {
+        const def = S.def;
+        const Hs = S.height;
+        const levels = [{ cells: new Set(S.cells), rooms: new Map(S.cells.map((c) => [c, this.room[c]])), doorCells: this.doorCellsOf(S) }];
+        for (const f of floors) {
+          const cells = this.floorCells(f);
+          const doorCells = new Set();
+          for (const d of f.doors) {
+            if (!this.inMap(d.x, d.y)) continue;
+            const c = this.idx(d.x, d.y);
+            doorCells.add(c);
+            const n = this.neighbor(c, d.side);
+            if (n >= 0) doorCells.add(n);
+          }
+          levels.push({ cells, rooms: this.floorRooms(f, cells), doorCells });
+        }
+        const stairs = this.planStairs(S, levels);
+        if (stairs[0]) {
+          const p = this.emitStairs(stairs[0], this.top);
+          if (p) this.props.add(placedBounds(this.kit.stairs(), p));
+        }
+        // the ground floor's roof is the floor above, except where it sticks out
+        const exposed = [...levels[0].cells].filter((c) => !levels[1].cells.has(c));
+        if (def.roof !== 'none' && S.wall) this.emitFlatRoof(exposed, this.top + Hs, flat, floorR);
+
+        floors.forEach((f, i) => {
+          const level = i + 1;
+          const top = level === floors.length;
+          const below = levels[level - 1].cells;
+          const cells = levels[level].cells;
+          const arrive = stairs[level - 1] ? stairs[level - 1].cells : new Set();
+          const sub = {
+            id: `${def.id}_f${level + 1}`, label: `${def.label} (${f.label})`, kind: def.kind,
+            parts: f.parts, cells: f.cells, rooms: f.rooms, doors: f.doors, mainKind: f.mainKind,
+            wall: def.wall, floor: def.floor, storeys: 1, roof: top ? def.roof : def.roof === 'none' ? 'none' : 'flat',
+            windows: def.windows, interiorWalls: def.interiorWalls, furnish: def.furnish,
+            upper: {
+              top, entry: arrive, holes: arrive, arrive: stairs[level - 1] || null,
+              terrace: new Set([...below].filter((c) => !cells.has(c))),
+              stairs: stairs[level] || null,
+              roofCells: top ? null : [...cells].filter((c) => !levels[level + 1].cells.has(c)),
+            },
+          };
+          this.compileUpperFloor(sub, this.top + level * Hs, level + 1, def.label);
+        });
+      }
+
+      doorCellsOf(S) {
+        const out = new Set();
         for (const c of S.cells) for (const side of SIDES4) {
           const e = this.edges.get(`${c}:${side}`);
           if (e && e.type === 'door') {
-            doorCells.add(c);
+            out.add(c);
             const n = this.neighbor(c, side);
-            if (n >= 0) doorCells.add(n);
+            if (n >= 0) out.add(n);
           }
+        }
+        return out;
+      }
+
+      // One stair flight per pair of floors, in cells both floors cover, within one
+      // room on each, clear of doors and of the flight arriving from below. Stacks
+      // flights in one stairwell when it fits; otherwise prefers corners.
+      planStairs(S, levels) {
+        const stairs = this.kit.stairs();
+        const out = [];
+        if (!stairs) {
+          this.missing.add('stairs');
+          return out;
         }
         const fx = Math.max(1, Math.round(stairs.size.x));
         const fz = Math.max(1, Math.round(stairs.size.z));
-        // Prefer a corner: try cells in order of how many walls they touch.
-        const ranked = S.cells
-          .map((c) => [SIDES4.filter((s) => this.edges.has(`${c}:${s}`)).length, c])
-          .sort((a, b) => b[0] - a[0] || a[1] - b[1]);
-        for (const [, c] of ranked) {
-          const x = c % this.W;
-          const y = (c / this.W) | 0;
-          for (const rot of [0, 6]) {
-            const w = rot === 0 ? fx : fz;
-            const h = rot === 0 ? fz : fx;
-            const cells = [];
-            let ok = true;
-            for (let dy = 0; dy < h && ok; dy++) for (let dx = 0; dx < w && ok; dx++) {
-              if (!this.inMap(x + dx, y + dy)) ok = false;
-              else {
-                const k = this.idx(x + dx, y + dy);
-                if (this.struct[k] !== S.index || doorCells.has(k) || this.room[k] !== this.room[c]) ok = false;
-                cells.push(k);
-              }
-            }
-            if (!ok) continue;
-            for (let k = 0; k < S.def.storeys - 1; k++) {
-              const p = this.emit(placeInCell(stairs, x, this.H - h - y, this.top + k * S.height, rot), 'structure', { cell: [x, y], what: 'stairs' });
-              if (k === 0) this.props.add(placedBounds(stairs, p));
-            }
-            return new Set(cells);
+        const fits = (x, y, rot, lower, upper, avoid) => {
+          const w = rot === 0 ? fx : fz;
+          const h = rot === 0 ? fz : fx;
+          const cells = new Set();
+          let roomLo = null;
+          let roomUp = null;
+          for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
+            if (!this.inMap(x + dx, y + dy)) return null;
+            const k = this.idx(x + dx, y + dy);
+            if (!lower.cells.has(k) || !upper.cells.has(k) || lower.doorCells.has(k) || upper.doorCells.has(k) || avoid.has(k)) return null;
+            const a = lower.rooms.get(k);
+            const b = upper.rooms.get(k);
+            if (roomLo === null) {
+              roomLo = a;
+              roomUp = b;
+            } else if (a !== roomLo || b !== roomUp) return null;
+            cells.add(k);
           }
+          return { x, y, rot, w, h, cells };
+        };
+        for (let t = 0; t + 1 < levels.length; t++) {
+          const lower = levels[t];
+          const upper = levels[t + 1];
+          const prev = out[t - 1];
+          let found = prev ? fits(prev.x, prev.y, prev.rot, lower, upper, new Set()) : null;
+          if (!found) {
+            const avoid = prev ? prev.cells : new Set();
+            const ranked = [...lower.cells]
+              .filter((c) => upper.cells.has(c))
+              .map((c) => [SIDES4.filter((sd) => !lower.cells.has(this.neighbor(c, sd)) || !upper.cells.has(this.neighbor(c, sd))).length, c])
+              .sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+            for (const [, c] of ranked) {
+              for (const rot of [0, 6]) {
+                found = fits(c % this.W, (c / this.W) | 0, rot, lower, upper, avoid);
+                if (found) break;
+              }
+              if (found) break;
+            }
+          }
+          if (!found) this.warn(`no room for stairs from floor ${t + 1} to floor ${t + 2} of ${S.def.label} (the floors need to overlap)`);
+          out.push(found);
         }
-        this.warn(`no room for stairs in ${S.def.label}`);
-        return new Set();
+        return out;
       }
 
-      emitRoof(S, flat, floorR) {
+      emitStairs(st, baseY) {
+        const stairs = this.kit.stairs();
+        if (!stairs || !st) return null;
+        this.preview.stairs.push({ x: st.x, y: st.y, w: st.w, h: st.h });
+        return this.emit(placeInCell(stairs, st.x, this.H - st.h - st.y, baseY, st.rot), 'structure', { cell: [st.x, st.y], what: 'stairs' });
+      }
+
+      emitFlatRoof(cells, baseY, flat, floorR) {
+        const piece = flat || (floorR && floorR.base);
+        if (!piece) return;
+        for (const c of cells) {
+          const x = c % this.W;
+          const y = (c / this.W) | 0;
+          this.emit(placeInCell(piece, x, this.tz(y), baseY, 0), 'roof', { cell: [x, y] });
+        }
+      }
+
+      // Build one upper floor with its own builder (rooms, walls, doors, windows,
+      // reachability, furniture), then lift it to its height.
+      compileUpperFloor(sub, baseY, floorNo, structureLabel) {
+        const plan = { ...this.plan, ground: 'none', areas: [], paths: [], barriers: [], props: [], scatter: [], raster: null, structures: [sub] };
+        const b = new Builder(plan, this.kit, { ...this.opts, seed: `${this.opts.seed}:${sub.id}` }, []);
+        b.barrierEdges = [];
+        b.rasterizeStructures();
+        for (const c of sub.upper.holes) b.surf[c] = null;
+        b.computeEdges();
+        b.computeTop();
+        b.emitSurfaces();
+        b.emitStructures();
+        for (const c of sub.upper.holes) {
+          const x = c % b.W;
+          const z = b.tz((c / b.W) | 0);
+          b.props.add([x + 0.02, z + 0.02, x + 0.98, z + 0.98]);
+        }
+        if (sub.upper.arrive) {
+          const a = sub.upper.arrive;
+          b.preview.stairs.push({ x: a.x, y: a.y, w: a.w, h: a.h, arrive: true });
+        }
+        b.markDoorways();
+        b.emitFurniture();
+        const dy = baseY - b.top;
+        for (const p of b.placements) {
+          p.y = round2(p.y + dy);
+          p.meta.floor = floorNo;
+          this.placements.push(p);
+        }
+        for (const w of b.warnings) this.warn(w);
+        for (const m of b.missing) this.missing.add(m);
+        const r = b.gridSnapshot();
+        this.floors.push({ structure: structureLabel, label: sub.label, level: floorNo, grid: r });
+      }
+
+      emitRoof(S, flat, floorR, cells = null) {
         const def = S.def;
         if (def.roof === 'none' || !S.wall) return;
-        const baseY = this.top + def.storeys * S.height;
+        const baseY = this.top + S.height;
+        if (cells) {
+          this.emitFlatRoof(cells, baseY, flat, floorR);
+          return;
+        }
         const kit = def.roof === 'pitched' ? this.kit.roofKit() : null;
         if (def.roof === 'pitched' && !kit) this.missing.add('pitched roof kit');
         if (kit) {
           this.emitPitchedRoof(S, kit, baseY);
           return;
         }
-        const piece = flat || (floorR && floorR.base);
-        if (!piece) return;
-        for (const c of S.cells) {
-          const x = c % this.W;
-          const y = (c / this.W) | 0;
-          this.emit(placeInCell(piece, x, this.tz(y), baseY, 0), 'roof', { cell: [x, y] });
-        }
+        this.emitFlatRoof(S.cells, baseY, flat, floorR);
       }
 
       // Hip roof by rings: each course steps one cell in and one piece up.
@@ -3221,20 +3431,25 @@
           warnings: this.warnings,
           kitReport: this.kit.report(),
           stats: { total: placements.length, tiles, props, distinctAssets: distinct.size, byLayer, top: this.top },
-          grid: {
-            width: this.W,
-            height: this.H,
-            surf: this.surf,
-            struct: Array.from(this.struct),
-            room: Array.from(this.room),
-            structures: this.structures.map((S) => ({ id: S.def.id, label: S.def.label, kind: S.def.kind, storeys: S.def.storeys, roof: S.def.roof, cells: S.cells, synthetic: !!S.def.synthetic })),
-            rooms: this.rooms.map((r) => ({ id: r.id, label: r.label, kind: r.kind, s: r.s, cells: r.cells.length, ...(r.open ? { open: true } : {}) })),
-            edges: [...this.edges].map(([k, e]) => {
-              const [c, side] = k.split(':');
-              return { x: Number(c) % this.W, y: (Number(c) / this.W) | 0, side, type: e.type, partition: e.partition };
-            }),
-            ...this.preview,
-          },
+          grid: this.gridSnapshot(),
+          floors: this.floors,
+        };
+      }
+
+      gridSnapshot() {
+        return {
+          width: this.W,
+          height: this.H,
+          surf: this.surf,
+          struct: Array.from(this.struct),
+          room: Array.from(this.room),
+          structures: this.structures.map((S) => ({ id: S.def.id, label: S.def.label, kind: S.def.kind, storeys: S.def.storeys, roof: S.def.roof, cells: S.cells, synthetic: !!S.def.synthetic })),
+          rooms: this.rooms.map((r) => ({ id: r.id, label: r.label, kind: r.kind, s: r.s, cells: r.cells.length, ...(r.open ? { open: true } : {}) })),
+          edges: [...this.edges].map(([k, e]) => {
+            const [c, side] = k.split(':');
+            return { x: Number(c) % this.W, y: (Number(c) / this.W) | 0, side, type: e.type, partition: e.partition };
+          }),
+          ...this.preview,
         };
       }
     }
@@ -3470,18 +3685,69 @@
     }
 
     // result: compilePlan() output. chunks: optional [{ region: {x, y, w, h}, label }].
+    // Upper floors (result.floors) are drawn as panels below the map, each cropped
+    // to its floor.
     function  renderPreviewSvg(result, { scale = 14, chunks = null, title = true } = {}) {
+      const S = scale;
       const g = result.grid;
+      const panels = [{
+        g, x0: 0, y0: 0, w: g.width, h: g.height, chunks, labels: true, head: title ? 26 : 0,
+        title: title ? `${esc(result.plan.title)}  <tspan fill="#9a948a" font-size="11">${g.width}x${g.height} tiles, ${result.stats.total} assets</tspan>` : '',
+      }];
+      for (const f of result.floors || []) {
+        const box = cellsBox(f.grid);
+        if (box) panels.push({ g: f.grid, ...box, chunks: null, labels: false, head: 22, title: `${esc(f.label)}  <tspan fill="#9a948a" font-size="11">floor ${f.level}</tspan>` });
+      }
+      const out = [];
+      let y = 0;
+      let width = 0;
+      panels.forEach((pn, i) => {
+        if (i > 0) y += 10;
+        if (pn.title) out.push(`<text x="6" y="${y + pn.head - 8}" fill="#f0e6d0" font-size="${i === 0 ? 15 : 13}">${pn.title}</text>`);
+        y += pn.head;
+        const id = `tf-panel-${i}`;
+        out.push(`<clipPath id="${id}"><rect x="${pn.x0 * S}" y="${pn.y0 * S}" width="${pn.w * S}" height="${pn.h * S}"/></clipPath>`);
+        out.push(`<g transform="translate(${-pn.x0 * S} ${y - pn.y0 * S})"><g clip-path="url(#${id})">`);
+        out.push(...drawGrid(pn.g, S, pn));
+        out.push('</g></g>');
+        y += pn.h * S;
+        width = Math.max(width, pn.w * S);
+      });
+      return [
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${y}" width="${width}" height="${y}" font-family="Georgia, serif">`,
+        `<rect x="0" y="0" width="${width}" height="${y}" fill="#1b1b1f"/>`,
+        ...out,
+        '</svg>',
+      ].join('\n');
+    }
+
+    // Bounding box of a floor's structure cells, one tile of margin.
+    function cellsBox(g) {
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -1;
+      let y1 = -1;
+      g.struct.forEach((s, c) => {
+        if (s < 0) return;
+        const x = c % g.width;
+        const y = Math.floor(c / g.width);
+        x0 = Math.min(x0, x);
+        y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x);
+        y1 = Math.max(y1, y);
+      });
+      if (x1 < 0) return null;
+      x0 = Math.max(0, x0 - 1);
+      y0 = Math.max(0, y0 - 1);
+      x1 = Math.min(g.width - 1, x1 + 1);
+      y1 = Math.min(g.height - 1, y1 + 1);
+      return { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    }
+
+    function drawGrid(g, S, { chunks = null, labels = true } = {}) {
       const W = g.width;
       const H = g.height;
-      const S = scale;
-      const header = title ? 26 : 0;
       const out = [];
-      out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-header} ${W * S} ${H * S + header}" width="${W * S}" height="${H * S + header}" font-family="Georgia, serif">`);
-      out.push(`<rect x="0" y="${-header}" width="${W * S}" height="${H * S + header}" fill="#1b1b1f"/>`);
-      if (title) {
-        out.push(`<text x="6" y="-8" fill="#f0e6d0" font-size="15">${esc(result.plan.title)}  <tspan fill="#9a948a" font-size="11">${W}x${H} tiles, ${result.stats.total} assets</tspan></text>`);
-      }
       // surfaces, merged into horizontal runs to keep the SVG small
       for (let y = 0; y < H; y++) {
         let x = 0;
@@ -3529,6 +3795,18 @@
       out.push(`<path d="${windows.join('')}" stroke="#9fd3f2" stroke-width="${Math.max(2, S * 0.18)}"/>`);
       out.push(`<path d="${doors.join('')}" stroke="#e8a33d" stroke-width="${Math.max(2, S * 0.3)}"/>`);
 
+      // stairs: a flight with its steps
+      for (const st of g.stairs || []) {
+        const [x, y, w, h] = [st.x * S, st.y * S, st.w * S, st.h * S];
+        const steps = [];
+        const n = Math.max(3, Math.round(Math.max(st.w, st.h) * 3));
+        for (let k = 1; k < n; k++) {
+          if (st.w >= st.h) steps.push(`M${(x + (w * k) / n).toFixed(1)} ${y + 2}V${y + h - 2}`);
+          else steps.push(`M${x + 2} ${(y + (h * k) / n).toFixed(1)}H${x + w - 2}`);
+        }
+        out.push(`<rect x="${x + 1}" y="${y + 1}" width="${w - 2}" height="${h - 2}" fill="#e7dcc2" fill-opacity="0.55" stroke="#2a2522" stroke-width="1"/><path d="${steps.join('')}" stroke="#2a2522" stroke-width="1"/>`);
+      }
+
       // open rooms (a bar area or a stage inside a bigger room): dashed outline
       const openRooms = new Map((g.rooms || []).filter((r) => r.open).map((r) => [r.id, { r, sx: 0, sy: 0, n: 0 }]));
       if (openRooms.size && g.room) {
@@ -3558,7 +3836,7 @@
         out.push(`<circle cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="${r.toFixed(1)}" fill="${PROP_COLORS[cls] || PROP_COLORS.other}" stroke="#000" stroke-opacity="0.5"><title>${esc(p.name || p.role)}</title></circle>`);
       }
 
-      for (const s of g.structures) {
+      for (const s of labels ? g.structures : []) {
         if (s.synthetic || s.cells.length === 0) continue;
         let sx = 0;
         let sy = 0;
@@ -3585,8 +3863,7 @@
           out.push(`<text x="${r.x * S + 4}" y="${r.y * S + 14}" font-size="12" fill="#ff4fd8" stroke="#000" stroke-width="3" paint-order="stroke">${esc(ch.label || `#${i + 1}`)}</text>`);
         });
       }
-      out.push('</svg>');
-      return out.join('\n');
+      return out;
     }
 
     return { MATERIAL_COLORS, renderPreviewSvg };
@@ -4731,7 +5008,8 @@
       - open: true on a room removes its walls even when interiorWalls is true. Use it for an area that is part of a bigger room rather than a room of its own: the bar counter area or the bard's stage in a taproom (kind 'bar' or 'stage', placed inside the taproom against a wall), a dais in a hall, an alcove, a seating nook. A tavern is typically a big open taproom (kind 'common') holding an open bar and an open stage, plus walled kitchen and storerooms with doors.
       - interiorWalls false: rooms are open to each other. Build a dungeon or cave as ONE structure whose parts are its rooms and corridors, touching edge to edge where they connect (a corridor part must share an edge with the rooms it joins). Name each part as a room so it gets the right furniture.
     - doors: {x, y, side} names a tile inside the structure and the side of that tile the door is on. Put an exterior door on the side facing a road or yard. With interiorWalls true, interior doors sit on the wall between two rooms. In an open dungeon a door may stand where a corridor meets a room. The builder adds doors where a room would otherwise be unreachable, but place the important ones yourself.
-    - storeys stack walls; upper floors are solid floors and the builder adds stairs. roof: 'pitched' for houses, taverns and most buildings, 'flat' for towers, keeps and desert houses, 'none' only for dungeons, caves, ruins and open pavilions, or when the user asks for no roof. Buildings get roofs by default.
+    - Floors: a building with more than one storey lists every floor above the ground in upperFloors, bottom to top, each with its own parts (footprint), rooms and doors; storeys is 1 + their count. Give every upper floor real rooms (bedrooms, bunk rooms, a study, storage) so it gets walls and furniture. Floors need not match: an upper floor can be smaller (a tower room over a hall), shifted, turned 90 degrees, or overhanging (a ramshackle stack like shipping containers piled askew, jettied upper storeys), as long as it overlaps the floor below by at least 2x2 tiles, where the builder puts the stairs. Parts of a lower floor left uncovered get a flat roof you can walk on; a door on an upper floor's outer wall may open onto it. Footprints stay on the grid: floors turn in right angles, never at odd angles.
+    - roof: 'pitched' for houses, taverns and most buildings, 'flat' for towers, keeps and desert houses, 'none' only for dungeons, caves, ruins and open pavilions, or when the user asks for no roof. Buildings get roofs by default.
     - furnish fills every room with furniture suited to its kind (bar, kitchen, bedroom, forge, shrine, library, crypt, treasury...). Add explicit props only for things that matter to the scene: a throne, an altar, a well, market stalls, a boat, a statue, a campfire, a cart, a sign.
     - barriers are free-standing walls along grid lines (integer coordinates): town walls ('fortification', towers at the corners, gates given as points on the line), palisades, fences, hedges.
     - scatter fills a polygon with natural clutter: forests (tree/conifer, density 0.25-0.45), rocky ground (rock/boulder 0.05-0.15), fields of crops or hay, graveyards (tombstone 0.2). The builder keeps scatter out of buildings and water.

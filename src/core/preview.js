@@ -25,18 +25,69 @@ function esc(s) {
 }
 
 // result: compilePlan() output. chunks: optional [{ region: {x, y, w, h}, label }].
+// Upper floors (result.floors) are drawn as panels below the map, each cropped
+// to its floor.
 export function renderPreviewSvg(result, { scale = 14, chunks = null, title = true } = {}) {
+  const S = scale;
   const g = result.grid;
+  const panels = [{
+    g, x0: 0, y0: 0, w: g.width, h: g.height, chunks, labels: true, head: title ? 26 : 0,
+    title: title ? `${esc(result.plan.title)}  <tspan fill="#9a948a" font-size="11">${g.width}x${g.height} tiles, ${result.stats.total} assets</tspan>` : '',
+  }];
+  for (const f of result.floors || []) {
+    const box = cellsBox(f.grid);
+    if (box) panels.push({ g: f.grid, ...box, chunks: null, labels: false, head: 22, title: `${esc(f.label)}  <tspan fill="#9a948a" font-size="11">floor ${f.level}</tspan>` });
+  }
+  const out = [];
+  let y = 0;
+  let width = 0;
+  panels.forEach((pn, i) => {
+    if (i > 0) y += 10;
+    if (pn.title) out.push(`<text x="6" y="${y + pn.head - 8}" fill="#f0e6d0" font-size="${i === 0 ? 15 : 13}">${pn.title}</text>`);
+    y += pn.head;
+    const id = `tf-panel-${i}`;
+    out.push(`<clipPath id="${id}"><rect x="${pn.x0 * S}" y="${pn.y0 * S}" width="${pn.w * S}" height="${pn.h * S}"/></clipPath>`);
+    out.push(`<g transform="translate(${-pn.x0 * S} ${y - pn.y0 * S})"><g clip-path="url(#${id})">`);
+    out.push(...drawGrid(pn.g, S, pn));
+    out.push('</g></g>');
+    y += pn.h * S;
+    width = Math.max(width, pn.w * S);
+  });
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${y}" width="${width}" height="${y}" font-family="Georgia, serif">`,
+    `<rect x="0" y="0" width="${width}" height="${y}" fill="#1b1b1f"/>`,
+    ...out,
+    '</svg>',
+  ].join('\n');
+}
+
+// Bounding box of a floor's structure cells, one tile of margin.
+function cellsBox(g) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -1;
+  let y1 = -1;
+  g.struct.forEach((s, c) => {
+    if (s < 0) return;
+    const x = c % g.width;
+    const y = Math.floor(c / g.width);
+    x0 = Math.min(x0, x);
+    y0 = Math.min(y0, y);
+    x1 = Math.max(x1, x);
+    y1 = Math.max(y1, y);
+  });
+  if (x1 < 0) return null;
+  x0 = Math.max(0, x0 - 1);
+  y0 = Math.max(0, y0 - 1);
+  x1 = Math.min(g.width - 1, x1 + 1);
+  y1 = Math.min(g.height - 1, y1 + 1);
+  return { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
+function drawGrid(g, S, { chunks = null, labels = true } = {}) {
   const W = g.width;
   const H = g.height;
-  const S = scale;
-  const header = title ? 26 : 0;
   const out = [];
-  out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-header} ${W * S} ${H * S + header}" width="${W * S}" height="${H * S + header}" font-family="Georgia, serif">`);
-  out.push(`<rect x="0" y="${-header}" width="${W * S}" height="${H * S + header}" fill="#1b1b1f"/>`);
-  if (title) {
-    out.push(`<text x="6" y="-8" fill="#f0e6d0" font-size="15">${esc(result.plan.title)}  <tspan fill="#9a948a" font-size="11">${W}x${H} tiles, ${result.stats.total} assets</tspan></text>`);
-  }
   // surfaces, merged into horizontal runs to keep the SVG small
   for (let y = 0; y < H; y++) {
     let x = 0;
@@ -84,6 +135,18 @@ export function renderPreviewSvg(result, { scale = 14, chunks = null, title = tr
   out.push(`<path d="${windows.join('')}" stroke="#9fd3f2" stroke-width="${Math.max(2, S * 0.18)}"/>`);
   out.push(`<path d="${doors.join('')}" stroke="#e8a33d" stroke-width="${Math.max(2, S * 0.3)}"/>`);
 
+  // stairs: a flight with its steps
+  for (const st of g.stairs || []) {
+    const [x, y, w, h] = [st.x * S, st.y * S, st.w * S, st.h * S];
+    const steps = [];
+    const n = Math.max(3, Math.round(Math.max(st.w, st.h) * 3));
+    for (let k = 1; k < n; k++) {
+      if (st.w >= st.h) steps.push(`M${(x + (w * k) / n).toFixed(1)} ${y + 2}V${y + h - 2}`);
+      else steps.push(`M${x + 2} ${(y + (h * k) / n).toFixed(1)}H${x + w - 2}`);
+    }
+    out.push(`<rect x="${x + 1}" y="${y + 1}" width="${w - 2}" height="${h - 2}" fill="#e7dcc2" fill-opacity="0.55" stroke="#2a2522" stroke-width="1"/><path d="${steps.join('')}" stroke="#2a2522" stroke-width="1"/>`);
+  }
+
   // open rooms (a bar area or a stage inside a bigger room): dashed outline
   const openRooms = new Map((g.rooms || []).filter((r) => r.open).map((r) => [r.id, { r, sx: 0, sy: 0, n: 0 }]));
   if (openRooms.size && g.room) {
@@ -113,7 +176,7 @@ export function renderPreviewSvg(result, { scale = 14, chunks = null, title = tr
     out.push(`<circle cx="${(p.x * S).toFixed(1)}" cy="${(p.y * S).toFixed(1)}" r="${r.toFixed(1)}" fill="${PROP_COLORS[cls] || PROP_COLORS.other}" stroke="#000" stroke-opacity="0.5"><title>${esc(p.name || p.role)}</title></circle>`);
   }
 
-  for (const s of g.structures) {
+  for (const s of labels ? g.structures : []) {
     if (s.synthetic || s.cells.length === 0) continue;
     let sx = 0;
     let sy = 0;
@@ -140,6 +203,5 @@ export function renderPreviewSvg(result, { scale = 14, chunks = null, title = tr
       out.push(`<text x="${r.x * S + 4}" y="${r.y * S + 14}" font-size="12" fill="#ff4fd8" stroke="#000" stroke-width="3" paint-order="stroke">${esc(ch.label || `#${i + 1}`)}</text>`);
     });
   }
-  out.push('</svg>');
-  return out.join('\n');
+  return out;
 }

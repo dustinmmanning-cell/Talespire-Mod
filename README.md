@@ -28,7 +28,7 @@ An AI model designs the layout: Claude (Anthropic) or GPT (OpenAI), whichever yo
 
 ## What it can do
 
-- **Generate from a description:** rooms, buildings, dungeons, caves, villages and walled towns, with doors, windows, multi-storey buildings, stairs, hip roofs, town walls with towers and gates, roads, rivers, forests and furnished rooms.
+- **Generate from a description:** rooms, buildings, dungeons, caves, villages and walled towns, with doors, windows, multi-storey buildings (each floor with its own shape, rooms and furniture: shifted, turned or overhanging), stairs, hip roofs, town walls with towers and gates, roads, rivers, forests and furnished rooms.
 - **Use a reference image:** as mood (concept art, a photo) or as a layout to reproduce (a floor plan or sketch).
 - **Trace a battle map:** convert a top-down map image into floors, walls, water and trees, tile by tile. The AI labels what each colour means and counts the battle grid.
 - **Refine:** "add a stable east of the inn", "make the river wider". Or edit the plan JSON by hand and rebuild instantly.
@@ -106,7 +106,7 @@ The CLI uses whichever API key is set (Anthropic if both are), unless you pass `
 ## Develop
 
 ```bash
-npm test             # 67 unit tests, no dependencies
+npm test             # 70 unit tests, no dependencies
 npm run test:e2e     # the Symbiote in Chromium with fake TaleSpire, Anthropic and OpenAI APIs (needs Playwright)
 npm run test:live    # real API calls: needs ANTHROPIC_API_KEY or OPENAI_API_KEY, spends real money (capped, default $1.50)
 npm run test:live -- --provider openai --model gpt-6.1-sol   # pick the provider and model

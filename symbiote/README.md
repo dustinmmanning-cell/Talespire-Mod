@@ -21,6 +21,8 @@ Large builds come in several parts. Place every part on the **same grid cell** w
 - **Refine**: after a build, describe a change ("add a stable east of the inn") and TaleForge redraws the plan.
 - **Plan JSON**: edit the plan by hand and rebuild instantly, no AI needed.
 
+Buildings can have several floors, each with its own shape, rooms and furniture. Ask for it in the description ("a three-storey inn with guest rooms upstairs", "like shipping containers stacked askew"). The preview shows each upper floor as its own panel under the map.
+
 ## Kit
 
 TaleForge never hardcodes asset ids: it looks up walls, floors and furniture in the content packs your TaleSpire has loaded. The **Kit** tab shows which asset fills each role and lets you override any of them.
