@@ -22,6 +22,8 @@ import { ROOF_EDGE_ROT, ROOF_CORNER_ROT } from './kit.js';
 import { furnitureRules, ruleCount, STRUCTURE_ROOM, UPPER_ROOM, UPPER_MAIN } from './furnish.js';
 import { makeRng, polygonCells, polylineCells, gridLineEdges } from './util.js';
 import { normalizePlacements, round2 } from './slab.js';
+import { rotatedSize, rotatedGround, rotatedEntrances, transformPrefab } from './prefab.js';
+import { tileClass } from './catalog.js';
 
 const SIDES4 = ['n', 'e', 's', 'w'];
 const SIDE_EDGE = { n: 'zMax', s: 'zMin', e: 'xMax', w: 'xMin' };
@@ -84,7 +86,9 @@ class Builder {
     this.placements = [];
     this.props = new Occupancy();
     this.doorClear = new Occupancy();
-    this.preview = { props: [], barriers: [], doors: [], windows: [], stairs: [] };
+    this.preview = { props: [], barriers: [], doors: [], windows: [], stairs: [], prefabs: [] };
+    this.prefabAt = new Int32Array(n).fill(-1); // community slab footprints, by placed index
+    this.placedPrefabs = [];
     this.missing = new Set();
     this.top = 0;
     this.floors = []; // previews of upper floors: { structure, label, level, grid }
@@ -114,10 +118,12 @@ class Builder {
     this.rasterizeGround();
     this.applyRaster();
     this.rasterizeAreasAndPaths();
+    this.reservePrefabs();
     this.rasterizeStructures();
     this.computeEdges();
     this.computeTop();
     this.emitSurfaces();
+    this.emitPrefabs();
     this.emitStructures();
     this.emitBarriers();
     this.emitPlanProps();
@@ -229,6 +235,9 @@ class Builder {
         for (let y = part.y; y < part.y + part.h; y++) for (let x = part.x; x < part.x + part.w; x++) cells.push(this.idx(x, y));
       }
       cells = [...new Set(cells)];
+      const free = cells.filter((c) => this.prefabAt[c] < 0);
+      if (free.length < cells.length) this.warn(`${def.label} overlapped a community slab; the overlapping part was left out`);
+      cells = free;
       for (const c of cells) {
         this.struct[c] = s;
         this.surf[c] = def.floor;
@@ -271,6 +280,85 @@ class Builder {
       S.wall = def.wall === 'none' ? null : this.kit.wall(def.wall);
       if (def.wall !== 'none' && !S.wall) this.warn(`no wall pieces found for "${def.wall}"; ${def.label} has no walls`);
       S.height = S.wall ? S.wall.height : 2;
+    }
+  }
+
+  // ---- community slabs (prefabs) ----------------------------------------------
+  // options.prefabs: Map or object ref -> analyzed prefab (see prefab.js).
+  // Reserve each placed slab's footprint so generated structures, barriers,
+  // scatter and props keep out, and drop generated ground where the slab
+  // brings its own floor.
+  reservePrefabs() {
+    const lib = this.opts.prefabs || {};
+    const get = (ref) => (lib instanceof Map ? lib.get(ref) : lib[ref]);
+    for (const pp of this.plan.prefabs || []) {
+      const pf = get(pp.ref);
+      if (!pf) {
+        this.warn(`community slab ${pp.ref} is not loaded; skipped`);
+        continue;
+      }
+      const q = Math.round((pp.rotation || 0) / 90) % 4;
+      const [w, d] = rotatedSize(pf, q);
+      if (w > this.W || d > this.H) {
+        this.warn(`"${pf.name || pp.ref}" (${w}x${d}) does not fit the map; skipped`);
+        continue;
+      }
+      const x = Math.max(0, Math.min(this.W - w, pp.x));
+      const y = Math.max(0, Math.min(this.H - d, pp.y));
+      if (x !== pp.x || y !== pp.y) this.warn(`"${pf.name || pp.ref}" was moved to fit inside the map`);
+      const cells = [];
+      for (let yy = y; yy < y + d; yy++) for (let xx = x; xx < x + w; xx++) cells.push(this.idx(xx, yy));
+      const clash = cells.find((c) => this.prefabAt[c] >= 0);
+      if (clash !== undefined) {
+        this.warn(`"${pf.name || pp.ref}" overlaps "${this.placedPrefabs[this.prefabAt[clash]].pf.name}"; skipped`);
+        continue;
+      }
+      const index = this.placedPrefabs.length;
+      for (const c of cells) this.prefabAt[c] = index;
+      if (pf.hasGround) {
+        for (const k of rotatedGround(pf, q)) {
+          const [gx, gz] = k.split(',').map(Number);
+          if (gx >= 0 && gz >= 0 && gx < w && gz < d) this.surf[this.idx(x + gx, y + d - 1 - gz)] = null;
+        }
+      }
+      this.placedPrefabs.push({ pf, q, x, y, w, d, ref: pp.ref });
+      this.preview.prefabs.push({ x, y, w, h: d, label: pf.name || pp.ref, creator: pf.creator || '', entrances: rotatedEntrances(pf, q) });
+    }
+  }
+
+  emitPrefabs() {
+    for (const P of this.placedPrefabs) {
+      const { pf, q, x, y, w, d } = P;
+      // walking surfaces level with the generated ground
+      const dy = pf.hasGround ? this.top - pf.groundTop : this.top;
+      const z0 = this.H - y - d;
+      let unknown = 0;
+      for (const p of transformPrefab(pf, this.kit.catalog, { quarter: q, x0: x, z0, dy })) {
+        if (!this.kit.catalog.get(p.assetId)) {
+          unknown++;
+          continue;
+        }
+        this.emit({ assetId: p.assetId, x: p.x, y: p.y, z: p.z, rot: p.rot }, 'prefab', { ref: P.ref });
+        this.previewPrefabPiece(p);
+      }
+      if (unknown) this.warn(`"${pf.name || P.ref}" uses ${unknown} asset(s) your TaleSpire doesn't have; they were left out`);
+      this.props.add([x, z0, x + w, z0 + d]);
+    }
+  }
+
+  // A top-down sketch of a placed slab for the preview: its ground-level
+  // floors as coloured cells, wall pieces and doors as boxes, props as dots.
+  previewPrefabPiece(p) {
+    const a = this.kit.catalog.get(p.assetId);
+    const cls = tileClass(a);
+    const b = placedBounds(a, p);
+    const plan = [b[0], this.H - b[3], b[2] - b[0], b[3] - b[1]]; // x, y, w, h in plan coordinates
+    const pv = this.preview;
+    if (!pv.prefabTiles) Object.assign(pv, { prefabTiles: [], prefabWalls: [] });
+    if (a.kind === 'prop') pv.props.push({ x: plan[0] + plan[2] / 2, y: plan[1] + plan[3] / 2, role: 'other', name: a.name });
+    else if (cls === 'floors' && p.y < this.top + 1) pv.prefabTiles.push({ x: plan[0], y: plan[1], w: plan[2], h: plan[3], m: surfaceLike(a.name) });
+    else if (cls === 'walls' || cls === 'windows' || cls === 'doors' || (Math.min(plan[2], plan[3]) <= 0.6 && a.size.y >= 1.2)) {
+      if (p.y < this.top + 1) pv.prefabWalls.push({ x: plan[0], y: plan[1], w: plan[2], h: plan[3], door: cls === 'doors' || /door/i.test(a.name), window: cls === 'windows' });
     }
   }
 
@@ -1017,7 +1105,7 @@ class Builder {
         if (!got) continue;
         [cell, side] = got;
         const c = this.idx(cell[0], cell[1]);
-        if (this.struct[c] >= 0) continue;
+        if (this.struct[c] >= 0 || this.prefabAt[c] >= 0) continue;
         owned.push({ x: cell[0], y: cell[1], side, type: 'wall', mid: ed.dir === 'h' ? [ed.x + 0.5, ed.y] : [ed.x, ed.y + 0.5] });
       }
       for (const g of bar.gates) {
@@ -1256,7 +1344,7 @@ class Builder {
       for (const [x, y] of cells) {
         if (!this.rng.chance(sc.density)) continue;
         const c = this.idx(x, y);
-        if (this.struct[c] >= 0) continue;
+        if (this.struct[c] >= 0 || this.prefabAt[c] >= 0) continue;
         const m = this.surf[c];
         if (!m) continue;
         if (UNWALKABLE.has(m) !== FLOATING_ROLES.has(sc.role)) continue;
@@ -1295,6 +1383,7 @@ class Builder {
       stats: { total: placements.length, tiles, props, distinctAssets: distinct.size, byLayer, top: this.top },
       grid: this.gridSnapshot(),
       floors: this.floors,
+      credits: [...new Map(this.placedPrefabs.map(({ pf, ref }) => [ref, { ref, name: pf.name || ref, creator: pf.creator || '', url: pf.url || '' }])).values()],
     };
   }
 
@@ -1314,6 +1403,13 @@ class Builder {
       ...this.preview,
     };
   }
+}
+
+// The preview colour family of a community slab's floor tile, by name.
+function surfaceLike(name) {
+  const n = name.toLowerCase();
+  for (const [re, m] of [[/water/, 'water'], [/grass|meadow/, 'grass'], [/dirt|earth|mud|soil/, 'dirt'], [/sand|desert/, 'sand'], [/snow/, 'snow'], [/cobble/, 'cobblestone'], [/carpet|rug/, 'carpet'], [/marble/, 'marble'], [/wood|plank|tavern|rural|deck/, 'wood_floor'], [/concrete|asphalt|road|street/, 'concrete'], [/metal|hull|steel/, 'metal_floor'], [/stone|castle|flag|brick|ruin/, 'stone_floor']]) if (re.test(n)) return m;
+  return 'tile';
 }
 
 function insidePoly(x, y, pts) {

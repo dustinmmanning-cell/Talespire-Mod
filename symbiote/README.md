@@ -20,6 +20,7 @@ Large builds come in several parts. Place every part on the **same grid cell** w
 - **Trace**: turns a top-down battle map image into floors, walls, water and trees cell by cell, with the AI labelling what each colour means.
 - **Refine**: after a build, describe a change ("add a stable east of the inn") and TaleForge redraws the plan.
 - **Plan JSON**: edit the plan by hand and rebuild instantly, no AI needed.
+- **Community slabs**: add a free mod.io API key in **Settings**, then tick **Build with community slabs from mod.io** on **Create**. TaleForge searches TaleSpire's slab repository for buildings that fit your description, uses the ones made from assets you have, and builds the rest around them. The result lists every creator. Their slabs are fine for your games, but don't republish them as your own.
 
 Buildings can have several floors, each with its own shape, rooms and furniture. Ask for it in the description ("a three-storey inn with guest rooms upstairs", "like shipping containers stacked askew"). The preview shows each upper floor as its own panel under the map.
 

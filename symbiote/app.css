@@ -143,3 +143,6 @@ h3.first { margin-top: 4px; }
 .chip.retry { cursor: pointer; text-decoration: underline dotted; }
 .pack-list { padding-left: 18px; margin: 6px 0; font-size: 13px; color: var(--fg2); }
 details.packs { margin: 4px 0 10px; }
+.credits { padding-left: 18px; margin: 4px 0; font-size: 13px; }
+.credits li small { color: var(--fg2); display: block; }
+.community { margin: 6px 0 10px; }

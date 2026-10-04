@@ -197,8 +197,10 @@
 
     async function pipeThrough(bytes, stream) {
       const writer = stream.writable.getWriter();
-      writer.write(bytes);
-      writer.close();
+      // Bad input fails both sides; the read below reports it, so the writer's
+      // promises must not become unhandled rejections.
+      writer.write(bytes).catch(() => {});
+      writer.close().catch(() => {});
       const chunks = [];
       let length = 0;
       const reader = stream.readable.getReader();
@@ -1709,9 +1711,24 @@
 
     // The plan schema with this library's building kits added to the wall and
     // floor choices ("kit:Concrete Building"). kits: Catalog.buildingKits().
-    function  planSchema(kits = []) {
-      if (!kits.length) return PLAN_SCHEMA;
+    // prefabRefs: community slabs the model may place (adds a required "prefabs").
+    function  planSchema(kits = [], prefabRefs = []) {
+      if (!kits.length && !prefabRefs.length) return PLAN_SCHEMA;
       const schema = JSON.parse(JSON.stringify(PLAN_SCHEMA));
+      if (prefabRefs.length) {
+        schema.properties.prefabs = {
+          type: 'array',
+          description: 'community slabs placed whole: x, y is the top-left tile of the footprint after rotation',
+          items: obj({
+            ref: en(prefabRefs, 'which community slab'),
+            x: int('left tile of the rotated footprint'),
+            y: int('top tile of the rotated footprint'),
+            rotation: en([0, 90, 180, 270].map(String), 'degrees clockwise'),
+          }),
+        };
+        schema.required = [...schema.required, 'prefabs'];
+      }
+      if (!kits.length) return schema;
       const st = schema.properties.structures.items.properties;
       st.wall.enum = [...st.wall.enum, ...kits.map((k) => `${KIT_PREFIX}${k.group}`)];
       st.wall.description += '; or one of the library\'s own building kits, "kit:<group>"';
@@ -1787,6 +1804,7 @@
         barriers: [],
         props: [],
         scatter: [],
+        prefabs: [],
         notes: text(input.notes),
       };
 
@@ -1848,6 +1866,12 @@
 
       for (const st of plan.structures) if (st.upperFloors.length) st.storeys = 1 + st.upperFloors.length;
       mergeNestedStructures(plan, warn);
+
+      for (const pf of arr(input.prefabs).slice(0, 200)) {
+        if (!pf || typeof pf !== 'object' || typeof pf.ref !== 'string' || !pf.ref.trim()) continue;
+        const rotation = (((Math.round(Number(pf.rotation) / 90) || 0) % 4) + 4) % 4 * 90;
+        plan.prefabs.push({ ref: pf.ref.trim().slice(0, 80), x: clampInt(pf.x, 0, W - 1, 0), y: clampInt(pf.y, 0, H - 1, 0), rotation });
+      }
 
       for (const b of arr(input.barriers)) {
         const points = arr(b && b.points).map((p) => cleanPoint(p, W, H)).filter(Boolean);
@@ -2385,6 +2409,196 @@
 
     return { hashString, makeRng, pointInPolygon, distToSegment, polygonCells, polylineCells, gridLineEdges };
   })();
+  // ---- prefab.js ----
+  __m['prefab'] = (function () {
+    // Prefabs: community slabs used whole, as pieces of a larger build.
+    //
+    // A slab is just placements. analyzePrefab() works out what it is for the AI
+    // and the compiler: its footprint in tiles, storeys, which sides have doors,
+    // whether every asset exists in this GM's library, and the base cells it
+    // covers with its own floor (so generated ground is left out under it).
+    //
+    // transformPrefab() turns it in quarter turns and moves it. Rotation sense is
+    // from conventions measured in-game: +6 steps (90 degrees) is clockwise seen
+    // from above with north (+z) up, the same sense as the pitched-roof tables
+    // (east edge 0 -> south edge 6). A placement stores its asset's origin, which
+    // for tiles is the min corner of the rotated footprint and for props the
+    // centre; turning goes through the collider centre so both stay right.
+
+    const { colliderOffset, placedBounds, QUARTER } = __m['geometry'];
+    const { tileClass } = __m['catalog'];
+    const { decodeSlab, round2 } = __m['slab'];
+    function centreOffset(asset, rot) {
+      const steps = ((rot % 24) + 24) % 24;
+      if (steps % QUARTER === 0) return colliderOffset(asset, steps);
+      return [asset.center.x, asset.center.z];
+    }
+
+    const box = (asset, p) => (asset ? placedBounds(asset, p) : [p.x, p.z, p.x, p.z]);
+
+    async function  prefabFromSlab(text, catalog, meta = {}) {
+      const { placements } = await decodeSlab(text);
+      return { ...analyzePrefab(placements, catalog), ...meta, slab: text };
+    }
+
+    // -> { placements (normalized), w, d, height, floors, entrances, genre, groups,
+    //      missing, missingIds, count, ground (Set 'x,z' world cells), groundTop, hasGround }
+    function  analyzePrefab(placements, catalog) {
+      if (!placements.length) throw new Error('the slab is empty');
+      let minX = Infinity;
+      let minZ = Infinity;
+      let minY = Infinity;
+      const missingIds = new Set();
+      for (const p of placements) {
+        const a = catalog.get(p.assetId);
+        if (!a) missingIds.add(p.assetId);
+        const b = box(a, p);
+        minX = Math.min(minX, b[0]);
+        minZ = Math.min(minZ, b[1]);
+        minY = Math.min(minY, p.y);
+      }
+      // keep the slab's own grid: shift by whole tiles only
+      const sx = -Math.floor(minX + 1e-6);
+      const sz = -Math.floor(minZ + 1e-6);
+      const sy = -minY;
+      const norm = placements.map((p) => ({ ...p, x: round2(p.x + sx), z: round2(p.z + sz), y: round2(p.y + sy) }));
+      let maxX = 0;
+      let maxZ = 0;
+      let maxY = 0;
+      const genres = { fantasy: 0, scifi: 0 };
+      const groups = new Map();
+      const floorLevels = new Map();
+      const doors = [];
+      const base = [];
+      // the building inside the slab: everything but its ground tiles and props
+      const core = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const p of norm) {
+        const a = catalog.get(p.assetId);
+        const b = box(a, p);
+        maxX = Math.max(maxX, b[2]);
+        maxZ = Math.max(maxZ, b[3]);
+        if (!a) continue;
+        const isBase = tileClass(a) === 'floors' && p.y < 0.3;
+        if (a.kind === 'tile' && !isBase) {
+          core[0] = Math.min(core[0], b[0]);
+          core[1] = Math.min(core[1], b[1]);
+          core[2] = Math.max(core[2], b[2]);
+          core[3] = Math.max(core[3], b[3]);
+        }
+        maxY = Math.max(maxY, p.y + a.size.y);
+        genres[a.genre === 'scifi' ? 'scifi' : 'fantasy']++;
+        if (a.group) groups.set(a.group, (groups.get(a.group) || 0) + 1);
+        const cls = tileClass(a);
+        if (cls === 'floors') {
+          const lvl = Math.round((p.y + a.size.y) * 4) / 4;
+          floorLevels.set(lvl, (floorLevels.get(lvl) || 0) + 1);
+          if (p.y < 0.3) base.push({ b, top: p.y + a.size.y });
+        }
+        if (a.kind === 'tile' && (cls === 'doors' || /door/i.test(a.name)) && p.y < 1) doors.push(b);
+      }
+      const w = Math.max(1, Math.ceil(maxX - 1e-6));
+      const d = Math.max(1, Math.ceil(maxZ - 1e-6));
+      // storeys: floor levels with a real number of tiles, at least a storey apart
+      const levels = [...floorLevels].filter(([, n]) => n >= 4).map(([l]) => l).sort((a, b) => a - b);
+      let floors = 0;
+      let last = -Infinity;
+      for (const l of levels) {
+        if (l - last >= 1.5) {
+          floors++;
+          last = l;
+        }
+      }
+      if (core[0] === Infinity) core.splice(0, 4, 0, 0, w, d);
+      const entrances = new Set();
+      for (const b of doors) {
+        if (b[1] < core[1] + 0.75) entrances.add('s');
+        if (b[3] > core[3] - 0.75) entrances.add('n');
+        if (b[0] < core[0] + 0.75) entrances.add('w');
+        if (b[2] > core[2] - 0.75) entrances.add('e');
+      }
+      const ground = new Set();
+      let groundTop = 0;
+      for (const { b, top } of base) {
+        for (let x = Math.floor(b[0] + 0.01); x < Math.ceil(b[2] - 0.01); x++) for (let z = Math.floor(b[1] + 0.01); z < Math.ceil(b[3] - 0.01); z++) ground.add(`${x},${z}`);
+        groundTop = Math.max(groundTop, top);
+      }
+      return {
+        placements: norm,
+        w,
+        d,
+        height: round2(maxY),
+        floors: Math.max(1, floors),
+        entrances: ['n', 'e', 's', 'w'].filter((s) => entrances.has(s)),
+        genre: genres.scifi > genres.fantasy ? 'scifi' : 'fantasy',
+        groups: [...groups].sort((a, b) => b[1] - a[1]).slice(0, 5),
+        missing: placements.filter((p) => missingIds.has(p.assetId)).length,
+        missingIds: [...missingIds],
+        count: placements.length,
+        ground,
+        groundTop: round2(groundTop),
+        hasGround: ground.size >= 0.5 * w * d,
+        core: { w: Math.max(1, Math.round(core[2] - core[0])), d: Math.max(1, Math.round(core[3] - core[1])) },
+      };
+    }
+
+    // Footprint and entrances after `quarter` clockwise turns.
+    function  rotatedSize(prefab, quarter) {
+      return quarter % 2 ? [prefab.d, prefab.w] : [prefab.w, prefab.d];
+    }
+
+    const TURN = { n: 'e', e: 's', s: 'w', w: 'n' };
+    function  rotatedEntrances(prefab, quarter) {
+      let e = prefab.entrances.slice();
+      for (let k = 0; k < quarter; k++) e = e.map((s) => TURN[s]);
+      return ['n', 'e', 's', 'w'].filter((s) => e.includes(s));
+    }
+
+    // Ground cells after rotation, in prefab-local world cells 'x,z'.
+    function  rotatedGround(prefab, quarter) {
+      let w = prefab.w;
+      let d = prefab.d;
+      let cells = [...prefab.ground].map((k) => k.split(',').map(Number));
+      for (let k = 0; k < quarter; k++) {
+        cells = cells.map(([x, z]) => [z, w - 1 - x]);
+        [w, d] = [d, w];
+      }
+      return new Set(cells.map(([x, z]) => `${x},${z}`));
+    }
+
+    // Turn `quarter` times clockwise, then put the footprint's min corner at world
+    // (x0, z0) and lift by dy.
+    function  transformPrefab(prefab, catalog, { quarter = 0, x0 = 0, z0 = 0, dy = 0 } = {}) {
+      const q = ((quarter % 4) + 4) % 4;
+      return prefab.placements.map((p) => {
+        const a = catalog.get(p.assetId);
+        const [ox, oz] = a ? centreOffset(a, p.rot) : [0, 0];
+        let cx = p.x + ox;
+        let cz = p.z + oz;
+        let rot = p.rot;
+        let w = prefab.w;
+        let d = prefab.d;
+        for (let k = 0; k < q; k++) {
+          [cx, cz] = [cz, w - cx];
+          rot = (rot + QUARTER) % 24;
+          [w, d] = [d, w];
+        }
+        const [nx, nz] = a ? centreOffset(a, rot) : [0, 0];
+        return { ...p, x: round2(cx - nx + x0), z: round2(cz - nz + z0), y: round2(p.y + dy), rot };
+      });
+    }
+
+    // A one-line description for the AI.
+    function  describePrefab(pf) {
+      const inner = pf.core && (pf.core.w < pf.w - 1 || pf.core.d < pf.d - 1) ? ` (building ${pf.core.w}x${pf.core.d} on its own ground)` : '';
+      const parts = [`${pf.w}x${pf.d} tiles${inner}`, pf.floors > 1 ? `${pf.floors} storeys` : '1 storey'];
+      if (pf.entrances.length) parts.push(`doors on ${pf.entrances.join('/')}`);
+      parts.push(pf.genre === 'scifi' ? 'sci-fi' : 'fantasy');
+      if (pf.groups.length) parts.push(`mostly ${pf.groups.slice(0, 3).map(([g]) => g).join(', ')}`);
+      return parts.join('; ');
+    }
+
+    return { prefabFromSlab, analyzePrefab, rotatedSize, rotatedEntrances, rotatedGround, transformPrefab, describePrefab };
+  })();
   // ---- compile.js ----
   __m['compile'] = (function () {
     // Plan -> placements. Deterministic: the same plan, kit and seed always give
@@ -2409,6 +2623,8 @@
     const { furnitureRules, ruleCount, STRUCTURE_ROOM, UPPER_ROOM, UPPER_MAIN } = __m['furnish'];
     const { makeRng, polygonCells, polylineCells, gridLineEdges } = __m['util'];
     const { normalizePlacements, round2 } = __m['slab'];
+    const { rotatedSize, rotatedGround, rotatedEntrances, transformPrefab } = __m['prefab'];
+    const { tileClass } = __m['catalog'];
     const SIDES4 = ['n', 'e', 's', 'w'];
     const SIDE_EDGE = { n: 'zMax', s: 'zMin', e: 'xMax', w: 'xMin' };
     const SIDE_DELTA = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] };
@@ -2470,7 +2686,9 @@
         this.placements = [];
         this.props = new Occupancy();
         this.doorClear = new Occupancy();
-        this.preview = { props: [], barriers: [], doors: [], windows: [], stairs: [] };
+        this.preview = { props: [], barriers: [], doors: [], windows: [], stairs: [], prefabs: [] };
+        this.prefabAt = new Int32Array(n).fill(-1); // community slab footprints, by placed index
+        this.placedPrefabs = [];
         this.missing = new Set();
         this.top = 0;
         this.floors = []; // previews of upper floors: { structure, label, level, grid }
@@ -2500,10 +2718,12 @@
         this.rasterizeGround();
         this.applyRaster();
         this.rasterizeAreasAndPaths();
+        this.reservePrefabs();
         this.rasterizeStructures();
         this.computeEdges();
         this.computeTop();
         this.emitSurfaces();
+        this.emitPrefabs();
         this.emitStructures();
         this.emitBarriers();
         this.emitPlanProps();
@@ -2615,6 +2835,9 @@
             for (let y = part.y; y < part.y + part.h; y++) for (let x = part.x; x < part.x + part.w; x++) cells.push(this.idx(x, y));
           }
           cells = [...new Set(cells)];
+          const free = cells.filter((c) => this.prefabAt[c] < 0);
+          if (free.length < cells.length) this.warn(`${def.label} overlapped a community slab; the overlapping part was left out`);
+          cells = free;
           for (const c of cells) {
             this.struct[c] = s;
             this.surf[c] = def.floor;
@@ -2657,6 +2880,85 @@
           S.wall = def.wall === 'none' ? null : this.kit.wall(def.wall);
           if (def.wall !== 'none' && !S.wall) this.warn(`no wall pieces found for "${def.wall}"; ${def.label} has no walls`);
           S.height = S.wall ? S.wall.height : 2;
+        }
+      }
+
+      // ---- community slabs (prefabs) ----------------------------------------------
+      // options.prefabs: Map or object ref -> analyzed prefab (see prefab.js).
+      // Reserve each placed slab's footprint so generated structures, barriers,
+      // scatter and props keep out, and drop generated ground where the slab
+      // brings its own floor.
+      reservePrefabs() {
+        const lib = this.opts.prefabs || {};
+        const get = (ref) => (lib instanceof Map ? lib.get(ref) : lib[ref]);
+        for (const pp of this.plan.prefabs || []) {
+          const pf = get(pp.ref);
+          if (!pf) {
+            this.warn(`community slab ${pp.ref} is not loaded; skipped`);
+            continue;
+          }
+          const q = Math.round((pp.rotation || 0) / 90) % 4;
+          const [w, d] = rotatedSize(pf, q);
+          if (w > this.W || d > this.H) {
+            this.warn(`"${pf.name || pp.ref}" (${w}x${d}) does not fit the map; skipped`);
+            continue;
+          }
+          const x = Math.max(0, Math.min(this.W - w, pp.x));
+          const y = Math.max(0, Math.min(this.H - d, pp.y));
+          if (x !== pp.x || y !== pp.y) this.warn(`"${pf.name || pp.ref}" was moved to fit inside the map`);
+          const cells = [];
+          for (let yy = y; yy < y + d; yy++) for (let xx = x; xx < x + w; xx++) cells.push(this.idx(xx, yy));
+          const clash = cells.find((c) => this.prefabAt[c] >= 0);
+          if (clash !== undefined) {
+            this.warn(`"${pf.name || pp.ref}" overlaps "${this.placedPrefabs[this.prefabAt[clash]].pf.name}"; skipped`);
+            continue;
+          }
+          const index = this.placedPrefabs.length;
+          for (const c of cells) this.prefabAt[c] = index;
+          if (pf.hasGround) {
+            for (const k of rotatedGround(pf, q)) {
+              const [gx, gz] = k.split(',').map(Number);
+              if (gx >= 0 && gz >= 0 && gx < w && gz < d) this.surf[this.idx(x + gx, y + d - 1 - gz)] = null;
+            }
+          }
+          this.placedPrefabs.push({ pf, q, x, y, w, d, ref: pp.ref });
+          this.preview.prefabs.push({ x, y, w, h: d, label: pf.name || pp.ref, creator: pf.creator || '', entrances: rotatedEntrances(pf, q) });
+        }
+      }
+
+      emitPrefabs() {
+        for (const P of this.placedPrefabs) {
+          const { pf, q, x, y, w, d } = P;
+          // walking surfaces level with the generated ground
+          const dy = pf.hasGround ? this.top - pf.groundTop : this.top;
+          const z0 = this.H - y - d;
+          let unknown = 0;
+          for (const p of transformPrefab(pf, this.kit.catalog, { quarter: q, x0: x, z0, dy })) {
+            if (!this.kit.catalog.get(p.assetId)) {
+              unknown++;
+              continue;
+            }
+            this.emit({ assetId: p.assetId, x: p.x, y: p.y, z: p.z, rot: p.rot }, 'prefab', { ref: P.ref });
+            this.previewPrefabPiece(p);
+          }
+          if (unknown) this.warn(`"${pf.name || P.ref}" uses ${unknown} asset(s) your TaleSpire doesn't have; they were left out`);
+          this.props.add([x, z0, x + w, z0 + d]);
+        }
+      }
+
+      // A top-down sketch of a placed slab for the preview: its ground-level
+      // floors as coloured cells, wall pieces and doors as boxes, props as dots.
+      previewPrefabPiece(p) {
+        const a = this.kit.catalog.get(p.assetId);
+        const cls = tileClass(a);
+        const b = placedBounds(a, p);
+        const plan = [b[0], this.H - b[3], b[2] - b[0], b[3] - b[1]]; // x, y, w, h in plan coordinates
+        const pv = this.preview;
+        if (!pv.prefabTiles) Object.assign(pv, { prefabTiles: [], prefabWalls: [] });
+        if (a.kind === 'prop') pv.props.push({ x: plan[0] + plan[2] / 2, y: plan[1] + plan[3] / 2, role: 'other', name: a.name });
+        else if (cls === 'floors' && p.y < this.top + 1) pv.prefabTiles.push({ x: plan[0], y: plan[1], w: plan[2], h: plan[3], m: surfaceLike(a.name) });
+        else if (cls === 'walls' || cls === 'windows' || cls === 'doors' || (Math.min(plan[2], plan[3]) <= 0.6 && a.size.y >= 1.2)) {
+          if (p.y < this.top + 1) pv.prefabWalls.push({ x: plan[0], y: plan[1], w: plan[2], h: plan[3], door: cls === 'doors' || /door/i.test(a.name), window: cls === 'windows' });
         }
       }
 
@@ -3403,7 +3705,7 @@
             if (!got) continue;
             [cell, side] = got;
             const c = this.idx(cell[0], cell[1]);
-            if (this.struct[c] >= 0) continue;
+            if (this.struct[c] >= 0 || this.prefabAt[c] >= 0) continue;
             owned.push({ x: cell[0], y: cell[1], side, type: 'wall', mid: ed.dir === 'h' ? [ed.x + 0.5, ed.y] : [ed.x, ed.y + 0.5] });
           }
           for (const g of bar.gates) {
@@ -3642,7 +3944,7 @@
           for (const [x, y] of cells) {
             if (!this.rng.chance(sc.density)) continue;
             const c = this.idx(x, y);
-            if (this.struct[c] >= 0) continue;
+            if (this.struct[c] >= 0 || this.prefabAt[c] >= 0) continue;
             const m = this.surf[c];
             if (!m) continue;
             if (UNWALKABLE.has(m) !== FLOATING_ROLES.has(sc.role)) continue;
@@ -3681,6 +3983,7 @@
           stats: { total: placements.length, tiles, props, distinctAssets: distinct.size, byLayer, top: this.top },
           grid: this.gridSnapshot(),
           floors: this.floors,
+          credits: [...new Map(this.placedPrefabs.map(({ pf, ref }) => [ref, { ref, name: pf.name || ref, creator: pf.creator || '', url: pf.url || '' }])).values()],
         };
       }
 
@@ -3700,6 +4003,13 @@
           ...this.preview,
         };
       }
+    }
+
+    // The preview colour family of a community slab's floor tile, by name.
+    function surfaceLike(name) {
+      const n = name.toLowerCase();
+      for (const [re, m] of [[/water/, 'water'], [/grass|meadow/, 'grass'], [/dirt|earth|mud|soil/, 'dirt'], [/sand|desert/, 'sand'], [/snow/, 'snow'], [/cobble/, 'cobblestone'], [/carpet|rug/, 'carpet'], [/marble/, 'marble'], [/wood|plank|tavern|rural|deck/, 'wood_floor'], [/concrete|asphalt|road|street/, 'concrete'], [/metal|hull|steel/, 'metal_floor'], [/stone|castle|flag|brick|ruin/, 'stone_floor']]) if (re.test(n)) return m;
+      return 'tile';
     }
 
     function insidePoly(x, y, pts) {
@@ -3911,7 +4221,7 @@
     // the Symbiote UI and written next to the slabs by the CLI.
 
     const MATERIAL_COLORS = {
-      grass: '#6d9b4a', dirt: '#8a6a45', mud: '#6b5338', gravel: '#9a9488', sand: '#d8c38e', snow: '#eef2f5',
+      concrete: '#9b9a96', asphalt: '#3e4046', metal_floor: '#6e7a84', grass: '#6d9b4a', dirt: '#8a6a45', mud: '#6b5338', gravel: '#9a9488', sand: '#d8c38e', snow: '#eef2f5',
       ice: '#bfe3f0', cobblestone: '#8c8c8c', flagstone: '#a39e93', stone_floor: '#7d7a76', wood_floor: '#a9773f',
       plank: '#9b6b3b', carpet: '#8e2d3a', marble: '#e6e1d8', tile: '#c9b79c', cave_floor: '#5f5650', water: '#3f7fbf',
       deep_water: '#2a5d91', swamp: '#5b6b3c', lava: '#d2491c', field: '#a58a4f',
@@ -4043,6 +4353,26 @@
       out.push(`<path d="${windows.join('')}" stroke="#9fd3f2" stroke-width="${Math.max(2, S * 0.18)}"/>`);
       out.push(`<path d="${doors.join('')}" stroke="#e8a33d" stroke-width="${Math.max(2, S * 0.3)}"/>`);
 
+      // community slabs: a sketch of their floors and walls, then their outline,
+      // name, creator and door sides
+      for (const t of g.prefabTiles || []) out.push(`<rect x="${(t.x * S).toFixed(1)}" y="${(t.y * S).toFixed(1)}" width="${(t.w * S).toFixed(1)}" height="${(t.h * S).toFixed(1)}" fill="${MATERIAL_COLORS[t.m] || '#9a8f80'}"/>`);
+      for (const wl of g.prefabWalls || []) out.push(`<rect x="${(wl.x * S).toFixed(1)}" y="${(wl.y * S).toFixed(1)}" width="${Math.max(2, wl.w * S).toFixed(1)}" height="${Math.max(2, wl.h * S).toFixed(1)}" fill="${wl.door ? '#e8a33d' : wl.window ? '#9fd3f2' : '#2a2522'}"/>`);
+      for (const pf of g.prefabs || []) {
+        const [x, y, w, h] = [pf.x * S, pf.y * S, pf.w * S, pf.h * S];
+        out.push(`<rect x="${x + 1}" y="${y + 1}" width="${w - 2}" height="${h - 2}" fill="none" stroke="#f0d28a" stroke-width="2" stroke-dasharray="7 4"/>`);
+        const ticks = [];
+        for (const side of pf.entrances || []) {
+          if (side === 'n') ticks.push(`M${x + w / 2 - S / 2} ${y + 2}H${x + w / 2 + S / 2}`);
+          if (side === 's') ticks.push(`M${x + w / 2 - S / 2} ${y + h - 2}H${x + w / 2 + S / 2}`);
+          if (side === 'w') ticks.push(`M${x + 2} ${y + h / 2 - S / 2}V${y + h / 2 + S / 2}`);
+          if (side === 'e') ticks.push(`M${x + w - 2} ${y + h / 2 - S / 2}V${y + h / 2 + S / 2}`);
+        }
+        if (ticks.length) out.push(`<path d="${ticks.join('')}" stroke="#e8a33d" stroke-width="${Math.max(3, S * 0.3)}"/>`);
+        const fs = Math.max(9, Math.min(13, S * 0.75));
+        out.push(`<text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2).toFixed(1)}" text-anchor="middle" font-size="${fs}" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${esc(pf.label)}</text>`);
+        if (pf.creator) out.push(`<text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2 + fs + 2).toFixed(1)}" text-anchor="middle" font-size="${Math.max(8, fs - 3)}" font-style="italic" fill="#f0e6d0" stroke="#000" stroke-width="2.5" paint-order="stroke">by ${esc(pf.creator)}</text>`);
+      }
+
       // stairs: a flight with its steps
       for (const st of g.stairs || []) {
         const [x, y, w, h] = [st.x * S, st.y * S, st.w * S, st.h * S];
@@ -4135,8 +4465,9 @@
     }
 
     // -> compile result + { chunks, registered, multiSlab, svg }
-    async function  buildSlabs(plan, kit, { seed, maxBytes = DEFAULT_CHUNK_BUDGET, multiSlab = true, furnitureFacing, previewScale } = {}) {
-      const result = compilePlan(plan, kit, { seed, furnitureFacing });
+    // prefabs: community slabs the plan places, ref -> analyzed prefab (prefab.js).
+    async function  buildSlabs(plan, kit, { seed, maxBytes = DEFAULT_CHUNK_BUDGET, multiSlab = true, furnitureFacing, previewScale, prefabs } = {}) {
+      const result = compilePlan(plan, kit, { seed, furnitureFacing, prefabs });
       if (result.placements.length === 0) throw new Error('The plan produced nothing to place. Is the asset catalog loaded?');
       const assetOf = (id) => kit.catalog.get(id);
       const vanilla = await chunkPlacements(result.placements, {
@@ -4179,6 +4510,10 @@
       lines.push(`Slabs: ${build.chunks.length} (${build.chunks.map((c) => `${c.compressedBytes} B`).join(', ')}).`, '');
       if (p.notes) lines.push('## GM notes', p.notes, '');
       lines.push('## How to paste', ...(build.chunks.length > 1 ? PASTE_HELP.multi : PASTE_HELP.single).map((l, i) => `${i + 1}. ${l}`), '');
+      if (build.credits && build.credits.length) {
+        lines.push('## Community slabs', 'From mod.io. They belong to their creators: fine for your games, but don\'t republish them as your own.');
+        lines.push(...build.credits.map((c) => `- ${c.name}${c.creator ? ` by ${c.creator}` : ''}${c.url ? ` (${c.url})` : ''}`), '');
+      }
       if (build.warnings.length) lines.push('## Warnings', ...build.warnings.map((w) => `- ${w}`), '');
       lines.push('## Assets used for each role', describeKitReport(build.kitReport));
       return lines.join('\n');
@@ -5230,6 +5565,7 @@
     const { PLAN_SCHEMA, normalizePlan, planSchema, MAX_MAP_TILES } = __m['plan'];
     const { STYLES, SURFACES, WALL_MATERIALS, STYLE_PRESETS } = __m['kit'];
     const { TRACE_MEANINGS } = __m['trace'];
+    const { describePrefab } = __m['prefab'];
     const SIZE_PRESETS = {
       auto: null,
       room: [16, 16],
@@ -5316,7 +5652,7 @@
     }
 
     // image: { mediaType: 'image/png'|'image/jpeg'|'image/webp'|'image/gif', data: base64 }
-    function  buildUserContent({ prompt, size, style, image, imageMode, previousPlan }) {
+    function  buildUserContent({ prompt, size, style, image, imageMode, previousPlan, prefabs }) {
       const content = [];
       if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } });
       const lines = [];
@@ -5332,8 +5668,27 @@
         lines.push(style && STYLES.includes(style) ? `Style: ${style}.` : 'Style: choose the best fit.');
         if (image) lines.push(imageGuidance(imageMode));
       }
+      if (prefabs && prefabs.length) lines.push('', prefabSection(prefabs));
       content.push({ type: 'text', text: lines.join('\n') });
       return content;
+    }
+
+    // Community slabs the model may place whole (see community.js).
+    function  prefabSection(prefabs) {
+      const lines = prefabs.map((pf) => {
+        const bits = [`${pf.ref}: "${pf.name}"${pf.creator ? ` by ${pf.creator}` : ''}`, describePrefab(pf)];
+        if (pf.tags && pf.tags.length) bits.push(`tags: ${pf.tags.slice(0, 6).join(', ')}`);
+        if (pf.summary) bits.push(`"${pf.summary.replace(/\s+/g, ' ').slice(0, 140)}"`);
+        return `- ${bits.join(' | ')}`;
+      });
+      return `# Community slabs you can place
+    Finished builds by other TaleSpire players, from mod.io. Place the ones that suit the request whole, with prefabs: [{ref, x, y, rotation}]:
+    - rotation is 0, 90, 180 or 270 degrees clockwise. A WxD slab turned 90 or 270 covers D x W tiles. x, y is the top-left tile of the footprint after turning.
+    - Door sides are for rotation 0; each 90 degrees moves them one side clockwise (n -> e -> s -> w). Turn slabs so their doors face the street or square, and run paths to them.
+    - Keep at least one tile between slabs, and never overlap a slab with another slab or with a structure.
+    - Use them instead of drawing your own building wherever one fits; draw only what is missing (roads, terrain, walls, small buildings). A slab may be placed more than once (a row of houses).
+    - Size the map so the slabs fit with room for streets.
+    ${lines.join('\n')}`;
     }
 
     function stripForPrompt(plan) {
@@ -5360,7 +5715,7 @@
         schemaName: 'build_plan',
         system,
         messages,
-        schema: opts.catalog && opts.catalog.buildingKits && !(opts.catalog.meta && opts.catalog.meta.synthetic) ? planSchema(opts.catalog.buildingKits()) : PLAN_SCHEMA,
+        schema: planSchemaFor(opts),
         onProgress: opts.onProgress,
         signal: opts.signal,
         fetchImpl: opts.fetchImpl,
@@ -5369,6 +5724,12 @@
       const raw = parseJsonText(out.text);
       const { plan, warnings } = normalizePlan(raw);
       return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, schemaMode: out.schemaMode, raw };
+    }
+
+    function planSchemaFor(opts) {
+      const kits = opts.catalog && opts.catalog.buildingKits && !(opts.catalog.meta && opts.catalog.meta.synthetic) ? opts.catalog.buildingKits() : [];
+      const refs = (opts.prefabs || []).map((p) => p.ref);
+      return kits.length || refs.length ? planSchema(kits, refs) : PLAN_SCHEMA;
     }
 
     // ---- trace mode: label colour clusters of a traced map image ----------------
@@ -5485,7 +5846,7 @@
       return { labels: newLabels, props: props.map((p) => ({ ...p, x: p.x * sx, y: p.y * sy })) };
     }
 
-    return { SIZE_PRESETS, SYSTEM_PROMPT, systemPrompt, sizeLine, imageGuidance, buildUserContent, generatePlan, traceSchema, traceUserText, labelTrace, remapTraceLabels };
+    return { SIZE_PRESETS, SYSTEM_PROMPT, systemPrompt, sizeLine, imageGuidance, buildUserContent, prefabSection, generatePlan, traceSchema, traceUserText, labelTrace, remapTraceLabels };
   })();
   // ---- png.js ----
   __m['png'] = (function () {
@@ -5932,6 +6293,571 @@
 
     return { probePlan, facingProbe };
   })();
+  // ---- zip.js ----
+  __m['zip'] = (function () {
+    // Minimal zip reader: enough to open the archives mod.io hosts (every mod.io
+    // upload is a zip). Reads the central directory, supports stored and deflated
+    // entries, and inflates with the platform's DecompressionStream, so it runs
+    // unchanged in a Symbiote and in Node 18+.
+
+    const EOCD_SIG = 0x06054b50;
+    const CENTRAL_SIG = 0x02014b50;
+    const LOCAL_SIG = 0x04034b50;
+
+    function  isZip(bytes) {
+      return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+    }
+
+    // -> [{ name, method, compressedSize, size, offset }]
+    function  zipEntries(bytes) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      let eocd = -1;
+      for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65535); i--) {
+        if (view.getUint32(i, true) === EOCD_SIG) {
+          eocd = i;
+          break;
+        }
+      }
+      if (eocd < 0) throw new Error('not a zip archive (no end of central directory)');
+      const count = view.getUint16(eocd + 10, true);
+      let off = view.getUint32(eocd + 16, true);
+      const out = [];
+      const dec = new TextDecoder();
+      for (let n = 0; n < count; n++) {
+        if (off + 46 > bytes.length || view.getUint32(off, true) !== CENTRAL_SIG) throw new Error('corrupt zip central directory');
+        const method = view.getUint16(off + 10, true);
+        const compressedSize = view.getUint32(off + 20, true);
+        const size = view.getUint32(off + 24, true);
+        const nameLen = view.getUint16(off + 28, true);
+        const extraLen = view.getUint16(off + 30, true);
+        const commentLen = view.getUint16(off + 32, true);
+        const local = view.getUint32(off + 42, true);
+        const name = dec.decode(bytes.subarray(off + 46, off + 46 + nameLen));
+        out.push({ name, method, compressedSize, size, offset: local });
+        off += 46 + nameLen + extraLen + commentLen;
+      }
+      return out;
+    }
+
+    // -> Uint8Array of the entry's uncompressed content.
+    async function  zipEntryData(bytes, entry) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (view.getUint32(entry.offset, true) !== LOCAL_SIG) throw new Error(`corrupt zip entry ${entry.name}`);
+      const start = entry.offset + 30 + view.getUint16(entry.offset + 26, true) + view.getUint16(entry.offset + 28, true);
+      const data = bytes.subarray(start, start + entry.compressedSize);
+      if (entry.method === 0) return data.slice();
+      if (entry.method === 8) return inflateRaw(data);
+      throw new Error(`zip entry ${entry.name} uses unsupported compression method ${entry.method}`);
+    }
+
+    // -> [{ name, data }] for every file (not directories), smallest first.
+    async function  unzip(bytes, { maxEntries = 64, maxBytes = 32 * 1024 * 1024 } = {}) {
+      const entries = zipEntries(bytes).filter((e) => !e.name.endsWith('/'));
+      if (entries.length > maxEntries) throw new Error(`zip has ${entries.length} files; too many`);
+      const out = [];
+      let total = 0;
+      for (const e of entries.sort((a, b) => a.size - b.size)) {
+        total += e.size;
+        if (total > maxBytes) throw new Error('zip content too large');
+        out.push({ name: e.name, data: await zipEntryData(bytes, e) });
+      }
+      return out;
+    }
+
+    async function inflateRaw(data) {
+      const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    // ---- writing (tests and exports): stored or deflated entries ----------------
+
+    const CRC_TABLE = (() => {
+      const t = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        t[n] = c >>> 0;
+      }
+      return t;
+    })();
+
+    function  crc32(bytes) {
+      let c = 0xffffffff;
+      for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    }
+
+    async function deflateRaw(data) {
+      const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    // files: [{ name, data: Uint8Array|string }]
+    async function  zip(files, { deflate = true } = {}) {
+      const enc = new TextEncoder();
+      const locals = [];
+      const centrals = [];
+      let offset = 0;
+      for (const f of files) {
+        const raw = typeof f.data === 'string' ? enc.encode(f.data) : f.data;
+        const comp = deflate ? await deflateRaw(raw) : raw;
+        const name = enc.encode(f.name);
+        const crc = crc32(raw);
+        const local = new Uint8Array(30 + name.length);
+        const lv = new DataView(local.buffer);
+        lv.setUint32(0, LOCAL_SIG, true);
+        lv.setUint16(4, 20, true);
+        lv.setUint16(8, deflate ? 8 : 0, true);
+        lv.setUint32(14, crc, true);
+        lv.setUint32(18, comp.length, true);
+        lv.setUint32(22, raw.length, true);
+        lv.setUint16(26, name.length, true);
+        local.set(name, 30);
+        const central = new Uint8Array(46 + name.length);
+        const cv = new DataView(central.buffer);
+        cv.setUint32(0, CENTRAL_SIG, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint16(10, deflate ? 8 : 0, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, comp.length, true);
+        cv.setUint32(24, raw.length, true);
+        cv.setUint16(28, name.length, true);
+        cv.setUint32(42, offset, true);
+        central.set(name, 46);
+        locals.push(local, comp);
+        centrals.push(central);
+        offset += local.length + comp.length;
+      }
+      const cdSize = centrals.reduce((n, c) => n + c.length, 0);
+      const eocd = new Uint8Array(22);
+      const ev = new DataView(eocd.buffer);
+      ev.setUint32(0, EOCD_SIG, true);
+      ev.setUint16(8, files.length, true);
+      ev.setUint16(10, files.length, true);
+      ev.setUint32(12, cdSize, true);
+      ev.setUint32(16, offset, true);
+      const parts = [...locals, ...centrals, eocd];
+      const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+      let o = 0;
+      for (const p of parts) {
+        out.set(p, o);
+        o += p.length;
+      }
+      return out;
+    }
+
+    return { isZip, zipEntries, zipEntryData, unzip, crc32, zip };
+  })();
+  // ---- modio.js ----
+  __m['modio'] = (function () {
+    // mod.io client for TaleSpire's official slab repository.
+    //
+    // Since late 2023 TaleSpire's in-game slab browser searches and publishes
+    // slabs on mod.io. This reads that repository with the GM's own read-only
+    // mod.io API key (mod.io > Account > API access), as the mod.io API terms
+    // require. Shapes are from the mod.io REST API v1 (cross-checked against the
+    // open-source modio-rs client):
+    //   GET /games?name_id=talespire                 -> { data: [game] }, game.tag_options
+    //   GET /games/{id}/mods?_q=&tags=&_sort=&_limit= -> { data: [mod], result_total }
+    //   mod.modfile.download.binary_url              -> the uploaded file (a zip)
+    // Errors are { error: { code, error_ref, message } }; 429 carries Retry-After.
+    //
+    // What a TaleSpire slab file contains is not documented, so slabFromBytes()
+    // sniffs: a zip, gzip, base64 slab text, a raw slab binary, or JSON holding
+    // one. describeSlabFile() reports what it found, for bug reports.
+
+    const { ApiError, sleep } = __m['http'];
+    const { isZip, unzip } = __m['zip'];
+    const { decodeSlab, gzipBytes, gunzipBytes, bytesToBase64, cleanSlabText } = __m['slab'];
+    const MODIO_BASE = 'https://api.mod.io/v1';
+    const TALESPIRE_NAME_ID = 'talespire';
+    const SLAB_MAGIC_LE = [0xce, 0xfa, 0xce, 0xd1];
+
+    class ModioClient {
+      constructor({ apiKey, baseUrl = MODIO_BASE, fetchImpl, retries = 2, wait = sleep } = {}) {
+        if (!apiKey) throw new ApiError('No mod.io API key configured. Add one in Settings (mod.io > Account > API access).', { type: 'authentication_error', provider: 'modio' });
+        this.apiKey = apiKey;
+        this.baseUrl = baseUrl.replace(/\/$/, '');
+        this.fetch = fetchImpl || globalThis.fetch.bind(globalThis);
+        this.retries = retries;
+        this.wait = wait;
+        this._game = null;
+      }
+
+      // Through a TaleForge proxy (any base URL other than mod.io's own), file
+      // downloads go through it too.
+      get proxied() {
+        return !/^https:\/\/(api\.mod\.io|g-\d+\.modapi\.io)\//.test(`${this.baseUrl}/`);
+      }
+
+      async request(path, params = {}, { signal } = {}) {
+        const q = new URLSearchParams({ ...params, api_key: this.apiKey });
+        const url = `${this.baseUrl}${path}?${q}`;
+        for (let attempt = 0; ; attempt++) {
+          let res;
+          try {
+            res = await this.fetch(url, { headers: { accept: 'application/json' }, signal });
+          } catch (e) {
+            if (signal && signal.aborted) throw new ApiError('Cancelled', { type: 'cancelled', provider: 'modio' });
+            throw new ApiError(`Could not reach mod.io (${e.message}). If the TaleSpire panel blocks it, run the TaleForge proxy and set the mod.io base URL to it.`, { type: 'network_error', provider: 'modio' });
+          }
+          if (res.ok) return res.json();
+          let body = {};
+          try {
+            body = await res.json();
+          } catch {
+            // not JSON
+          }
+          const err = body.error || {};
+          if (res.status === 429 && attempt < this.retries) {
+            const after = Number(res.headers.get && res.headers.get('retry-after'));
+            await this.wait(Math.min(30, Number.isFinite(after) && after > 0 ? after : 5 * (attempt + 1)) * 1000);
+            continue;
+          }
+          throw new ApiError(friendlyModioError(res.status, err), { status: res.status, type: `modio_${err.error_ref || res.status}`, provider: 'modio', details: err });
+        }
+      }
+
+      async game(opts) {
+        if (!this._game) {
+          const list = await this.request('/games', { name_id: TALESPIRE_NAME_ID }, opts);
+          const g = (list.data || [])[0];
+          if (!g) throw new ApiError('TaleSpire was not found on mod.io.', { type: 'not_found', provider: 'modio' });
+          this._game = g;
+        }
+        return this._game;
+      }
+
+      // The tag TaleSpire puts on slabs ("Slab"), from the game's tag options.
+      async slabTag(opts) {
+        const g = await this.game(opts);
+        const all = (g.tag_options || []).flatMap((o) => (o.tags || []).map((t) => ({ group: o.name, tag: t })));
+        return all.find((t) => /^slabs?$/i.test(t.tag)) || all.find((t) => /slab/i.test(t.tag)) || null;
+      }
+
+      // -> { total, items: [summary] }
+      async searchSlabs(query, { limit = 8, offset = 0, sort = '-popular', signal } = {}) {
+        const g = await this.game({ signal });
+        const tag = await this.slabTag({ signal });
+        const params = { _limit: String(limit), _offset: String(offset), _sort: sort };
+        if (query) params._q = query;
+        if (tag) params.tags = tag.tag;
+        const res = await this.request(`/games/${g.id}/mods`, params, { signal });
+        return { total: res.result_total ?? (res.data || []).length, items: (res.data || []).map(summarizeMod), tag: tag ? tag.tag : null };
+      }
+
+      async getMod(id, opts) {
+        const g = await this.game(opts);
+        return summarizeMod(await this.request(`/games/${g.id}/mods/${id}`, {}, opts));
+      }
+
+      async downloadFile(item, { signal } = {}) {
+        const url = item.file && item.file.url;
+        if (!url) throw new ApiError(`"${item.name}" has no file to download.`, { type: 'no_file', provider: 'modio' });
+        const target = this.proxied ? `${this.baseUrl.replace(/\/v1$/, '')}/download?url=${encodeURIComponent(url)}` : url;
+        let res;
+        try {
+          res = await this.fetch(target, { signal });
+        } catch (e) {
+          throw new ApiError(`Could not download "${item.name}" from mod.io (${e.message}).`, { type: 'network_error', provider: 'modio' });
+        }
+        if (!res.ok) throw new ApiError(`Downloading "${item.name}" failed: HTTP ${res.status}.`, { status: res.status, type: 'download_error', provider: 'modio' });
+        return new Uint8Array(await res.arrayBuffer());
+      }
+
+      // -> { text, how, item } where text is slab text TaleSpire can paste.
+      async fetchSlab(item, opts) {
+        for (const [blob, how] of [[item.metadataBlob, 'mod metadata'], [item.file && item.file.metadataBlob, 'file metadata']]) {
+          const text = blob && (await slabFromText(blob));
+          if (text) return { text, how, item };
+        }
+        const bytes = await this.downloadFile(item, opts);
+        const found = await slabFromBytes(bytes, item.file && item.file.filename);
+        if (!found) {
+          const d = await describeSlabFile(bytes, item.file && item.file.filename);
+          throw new ApiError(`No slab found in "${item.name}" (${d.summary}).`, { type: 'no_slab', provider: 'modio', details: d });
+        }
+        return { ...found, item };
+      }
+    }
+
+    function friendlyModioError(status, err) {
+      if (status === 401) return 'The mod.io API key was rejected. Check it in Settings.';
+      if (status === 403) return `mod.io refused the request: ${err.message || 'forbidden'}`;
+      if (status === 404) return `Not found on mod.io: ${err.message || ''}`.trim();
+      if (status === 429) return 'mod.io rate limit reached. Wait a minute and try again.';
+      return `mod.io error ${status}${err.message ? `: ${err.message}` : ''}`;
+    }
+
+    // The parts of a mod.io mod object TaleForge uses.
+    function  summarizeMod(m) {
+      const kvp = {};
+      for (const e of m.metadata_kvp || []) if (e && e.metakey) kvp[e.metakey] = e.metavalue;
+      const f = m.modfile && m.modfile.id ? m.modfile : null;
+      return {
+        ref: `modio:${m.id}`,
+        id: m.id,
+        name: m.name || `mod ${m.id}`,
+        summary: m.summary || '',
+        url: m.profile_url || '',
+        creator: (m.submitted_by && m.submitted_by.username) || '',
+        creatorUrl: (m.submitted_by && m.submitted_by.profile_url) || '',
+        thumb: (m.logo && (m.logo.thumb_320x180 || m.logo.original)) || '',
+        tags: (m.tags || []).map((t) => t.name).filter(Boolean),
+        kvp,
+        metadataBlob: m.metadata_blob || '',
+        stats: m.stats ? { downloads: m.stats.downloads_total || 0, subscribers: m.stats.subscribers_total || 0, rating: m.stats.ratings_display_text || '' } : null,
+        file: f ? { id: f.id, filename: f.filename || '', size: f.filesize || 0, url: (f.download && f.download.binary_url) || '', metadataBlob: f.metadata_blob || '' } : null,
+      };
+    }
+
+    // ---- finding the slab in whatever was uploaded ------------------------------
+
+    const startsWith = (b, sig) => sig.every((v, i) => b[i] === v);
+
+    // Slab text (base64 of gzip) if `text` is or contains one that decodes.
+    async function  slabFromText(text) {
+      if (!text || typeof text !== 'string') return null;
+      const tries = [cleanSlabText(text)];
+      const embedded = text.match(/H4sI[A-Za-z0-9+/=\s]{20,}/);
+      if (embedded) tries.push(cleanSlabText(embedded[0]));
+      if (/^\s*[[{]/.test(text)) {
+        try {
+          const strings = [];
+          const walk = (v) => {
+            if (typeof v === 'string') strings.push(v);
+            else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+          };
+          walk(JSON.parse(text));
+          tries.push(...strings.filter((s) => s.length > 20).map(cleanSlabText));
+        } catch {
+          // not JSON
+        }
+      }
+      for (const t of tries) {
+        if (!/^[A-Za-z0-9+/]+=*$/.test(t)) continue;
+        try {
+          await decodeSlab(t);
+          return t;
+        } catch {
+          // not a slab
+        }
+      }
+      return null;
+    }
+
+    // -> { text, how } or null
+    async function  slabFromBytes(bytes, name = '', depth = 0) {
+      if (!bytes || !bytes.length || depth > 3) return null;
+      if (isZip(bytes)) {
+        let files;
+        try {
+          files = await unzip(bytes);
+        } catch {
+          return null;
+        }
+        // likely slab files first
+        files.sort((a, b) => score(b.name) - score(a.name));
+        for (const f of files) {
+          const r = await slabFromBytes(f.data, f.name, depth + 1);
+          if (r) return { ...r, how: `zip entry "${f.name}" (${r.how})` };
+        }
+        return null;
+      }
+      if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+        try {
+          const raw = await gunzipBytes(bytes);
+          if (startsWith(raw, SLAB_MAGIC_LE)) return { text: bytesToBase64(bytes), how: 'gzip slab binary' };
+          const inner = await slabFromBytes(raw, name, depth + 1);
+          if (inner) return { ...inner, how: `gzip (${inner.how})` };
+        } catch {
+          // not gzip after all
+        }
+        return null;
+      }
+      if (startsWith(bytes, SLAB_MAGIC_LE)) return { text: bytesToBase64(await gzipBytes(bytes)), how: 'raw slab binary' };
+      if (bytes.length < 8 * 1024 * 1024) {
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+        const t = await slabFromText(text);
+        if (t) return { text: t, how: /^\s*[[{]/.test(text) ? 'JSON' : 'slab text' };
+      }
+      return null;
+    }
+
+    function score(name) {
+      const n = name.toLowerCase();
+      if (/slab/.test(n)) return 3;
+      if (/\.(txt|json|bin|slab)$/.test(n)) return 2;
+      if (/\.(png|jpe?g|webp|gif)$/.test(n)) return -1;
+      return 0;
+    }
+
+    // What a downloaded file looks like, without its contents (for diagnostics).
+    async function  describeSlabFile(bytes, name = '') {
+      const head = Array.from(bytes.subarray(0, 8)).map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      const out = { filename: name, size: bytes.length, head };
+      if (isZip(bytes)) {
+        try {
+          const files = await unzip(bytes);
+          out.entries = await Promise.all(files.slice(0, 20).map(async (f) => ({
+            name: f.name,
+            size: f.data.length,
+            head: Array.from(f.data.subarray(0, 8)).map((b) => b.toString(16).padStart(2, '0')).join(' '),
+            slab: (await slabFromBytes(f.data, f.name, 1)) ? 'yes' : 'no',
+          })));
+          out.summary = `zip of ${files.length} file(s): ${files.map((f) => f.name).slice(0, 5).join(', ')}`;
+        } catch (e) {
+          out.summary = `zip that could not be read: ${e.message}`;
+        }
+      } else {
+        out.summary = `${bytes.length} bytes starting ${head}`;
+      }
+      return out;
+    }
+
+    return { MODIO_BASE, TALESPIRE_NAME_ID, ModioClient, summarizeMod, slabFromText, slabFromBytes, describeSlabFile };
+  })();
+  // ---- community.js ----
+  __m['community'] = (function () {
+    // Building from community slabs on mod.io:
+    //   1. the model turns the request into a few mod.io searches,
+    //   2. TaleForge searches, downloads and analyzes the slabs found, keeping
+    //      only those whose every asset is in this GM's library,
+    //   3. the model lays out the scene, placing slabs whole and drawing the
+    //      rest (roads, terrain, small buildings) as usual.
+
+    const { callModel } = __m['ai'];
+    const { parseJsonText } = __m['http'];
+    const { prefabFromSlab } = __m['prefab'];
+    const { generatePlan } = __m['planner'];
+    const { STYLES } = __m['kit'];
+    const str = (description) => ({ type: 'string', description });
+    const obj = (properties) => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties });
+
+    const SEARCH_SCHEMA = obj({
+      searches: {
+        type: 'array',
+        description: '2 to 6 searches, most important first',
+        items: obj({ query: str('1-3 words, e.g. "tavern", "market stall", "watchtower"'), purpose: str('what this is for in the scene') }),
+      },
+      style: { type: 'string', enum: STYLES, description: 'the style that fits the request' },
+    });
+
+    const SEARCH_SYSTEM = `You help TaleForge find community-made TaleSpire slabs (finished builds shared by other players) on mod.io for a GM's request. mod.io's full-text search matches slab names and descriptions, so search the way builders name things.
+    Return 2 to 6 short searches, one per distinct building or landmark the request needs, most important first: "tavern", "blacksmith", "market stall", "watchtower", "ship", "sci-fi bar", "space station". Never search for terrain, roads, floors or generic ground; TaleForge draws those itself. Also pick the style that fits the request.`;
+
+    // -> { searches: [{ query, purpose }], style, usage, cost, model }
+    async function  planSearches(opts) {
+      const out = await callModel({
+        provider: opts.provider,
+        apiKey: opts.apiKey,
+        baseUrl: opts.baseUrl,
+        model: opts.model,
+        effort: 'low',
+        maxTokens: 4000,
+        schemaName: 'slab_searches',
+        system: SEARCH_SYSTEM,
+        messages: [{ role: 'user', content: `Request: ${opts.prompt}${opts.style ? `\nStyle: ${opts.style}` : ''}` }],
+        schema: SEARCH_SCHEMA,
+        onProgress: opts.onProgress,
+        signal: opts.signal,
+        fetchImpl: opts.fetchImpl,
+        fallbacks: opts.fallbacks !== false,
+      });
+      const raw = parseJsonText(out.text);
+      const seen = new Set();
+      const searches = (Array.isArray(raw.searches) ? raw.searches : [])
+        .map((s) => ({ query: String((s && s.query) || '').trim().slice(0, 60), purpose: String((s && s.purpose) || '').slice(0, 120) }))
+        .filter((s) => s.query && !seen.has(s.query.toLowerCase()) && seen.add(s.query.toLowerCase()))
+        .slice(0, 6);
+      return { searches, style: STYLES.includes(raw.style) ? raw.style : null, usage: out.usage, cost: out.cost, model: out.model };
+    }
+
+    // Search, download and analyze. cache: Map ref -> { text, how, item } of slabs
+    // already downloaded (kept by the caller across builds).
+    // -> { candidates: [prefab], rejected: [{ ref, name, creator, reason }], found }
+    async function  gatherSlabs({ modio, catalog, searches, perSearch = 6, max = 18, maxSide = 80, cache = new Map(), onProgress, signal }) {
+      const items = new Map();
+      for (const s of searches) {
+        if (signal && signal.aborted) break;
+        if (onProgress) onProgress({ phase: 'searching', query: s.query });
+        const res = await modio.searchSlabs(s.query, { limit: perSearch, signal });
+        for (const it of res.items) if (!items.has(it.ref) && items.size < max) items.set(it.ref, { ...it, search: s.query });
+      }
+      const candidates = [];
+      const rejected = [];
+      let done = 0;
+      const list = [...items.values()];
+      const work = async (it) => {
+        try {
+          let got = cache.get(it.ref);
+          if (!got) {
+            got = await modio.fetchSlab(it, { signal });
+            cache.set(it.ref, { text: got.text, how: got.how, item: it });
+          }
+          const pf = await prefabFromSlab(got.text, catalog, {
+            ref: it.ref, name: it.name, creator: it.creator, url: it.url, summary: it.summary, tags: it.tags, thumb: it.thumb, search: it.search, how: got.how,
+          });
+          if (pf.missing > 0) rejected.push({ ...credit(it), reason: `uses ${pf.missing} asset(s) your TaleSpire doesn't have` });
+          else if (pf.w > maxSide || pf.d > maxSide) rejected.push({ ...credit(it), reason: `too big (${pf.w}x${pf.d} tiles)` });
+          else candidates.push(pf);
+        } catch (e) {
+          rejected.push({ ...credit(it), reason: e.message });
+        } finally {
+          done++;
+          if (onProgress) onProgress({ phase: 'downloading', done, total: list.length });
+        }
+      };
+      // a few at a time: polite to mod.io, quick enough
+      for (let i = 0; i < list.length; i += 3) await Promise.all(list.slice(i, i + 3).map(work));
+      return { candidates, rejected, found: list.length };
+    }
+
+    const credit = (it) => ({ ref: it.ref, name: it.name, creator: it.creator, url: it.url });
+
+    const addUsage = (a, b) => {
+      if (!a) return b;
+      if (!b) return a;
+      const out = {};
+      for (const k of Object.keys(a)) out[k] = (a[k] || 0) + (b[k] || 0);
+      return out;
+    };
+
+    // The whole flow. opts: generatePlan's options plus { modio, searches?, cache, onProgress }.
+    // -> generatePlan's result plus { prefabs: Map ref -> prefab, candidates, rejected, searches, searchModel }
+    async function  generateCommunityPlan(opts) {
+      const step = (phase, extra) => opts.onProgress && opts.onProgress({ phase, ...extra });
+      let searches = opts.searches;
+      let scout = null;
+      if (!searches || !searches.length) {
+        step('scouting');
+        scout = await planSearches(opts);
+        searches = scout.searches;
+      }
+      if (!searches.length) throw new Error('Could not work out what to search mod.io for. Describe the buildings you want.');
+      const { candidates, rejected, found } = await gatherSlabs({ ...opts, searches });
+      if (!candidates.length) {
+        const why = rejected.length ? ` ${rejected.length} were found but can't be used here (${[...new Set(rejected.map((r) => r.reason))].slice(0, 2).join('; ')}).` : '';
+        throw new Error(`No usable community slabs found on mod.io for: ${searches.map((s) => s.query).join(', ')}.${why} Try other words, or build without community slabs.`);
+      }
+      step('composing', { count: candidates.length });
+      const res = await generatePlan({ ...opts, style: opts.style || (scout && scout.style) || undefined, prefabs: candidates });
+      const cost = res.cost === null || res.cost === undefined || !scout || scout.cost === null ? res.cost : res.cost + scout.cost;
+      return {
+        ...res,
+        usage: addUsage(scout && scout.usage, res.usage),
+        cost,
+        prefabs: new Map(candidates.map((c) => [c.ref, c])),
+        candidates,
+        rejected,
+        found,
+        searches,
+      };
+    }
+
+    return { SEARCH_SCHEMA, planSearches, gatherSlabs, generateCommunityPlan };
+  })();
   // ---- index.js ----
   __m['index'] = (function () {
     // TaleForge public API. Everything here also ships in the Symbiote bundle as
@@ -5956,7 +6882,11 @@
     const { decodePng, encodePng, sniffImageType } = __m['png'];
     const { demoCatalog } = __m['demo-catalog'];
     const { probePlan, facingProbe } = __m['probe'];
-    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, assignGenres, tileClass, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, KIT_PREFIX, isKitMaterial, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, planSchema, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, compactSchema, SCHEMA_STEPS, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
+    const { isZip, zipEntries, zipEntryData, unzip, zip, crc32 } = __m['zip'];
+    const { ModioClient, MODIO_BASE, summarizeMod, slabFromBytes, slabFromText, describeSlabFile } = __m['modio'];
+    const { analyzePrefab, prefabFromSlab, transformPrefab, rotatedSize, rotatedEntrances, rotatedGround, describePrefab } = __m['prefab'];
+    const { planSearches, gatherSlabs, generateCommunityPlan, SEARCH_SCHEMA } = __m['community'];
+    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, assignGenres, tileClass, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, KIT_PREFIX, isKitMaterial, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, planSchema, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, compactSchema, SCHEMA_STEPS, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe, isZip, zipEntries, zipEntryData, unzip, zip, crc32, ModioClient, MODIO_BASE, summarizeMod, slabFromBytes, slabFromText, describeSlabFile, analyzePrefab, prefabFromSlab, transformPrefab, rotatedSize, rotatedEntrances, rotatedGround, describePrefab, planSearches, gatherSlabs, generateCommunityPlan, SEARCH_SCHEMA };
   })();
   global.TaleForge = __m['index'];
 })(typeof window !== 'undefined' ? window : globalThis);

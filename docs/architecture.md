@@ -104,6 +104,10 @@ Each style has a genre. The fantasy styles never use sci-fi assets. The `modern`
    - Walls and stairs are obstacles. Doorways (the cells on both sides of every door) stay clear.
 7. **Normalize** by whole tiles, so floors stay on the grid minis snap to.
 
+## Community slabs
+
+A plan can place whole community slabs from mod.io (`prefabs: [{ ref, x, y, rotation }]`). The AI first plans a few mod.io searches, then TaleForge downloads the slabs, keeps those whose every asset is in the GM's library, and lets the AI arrange them. The compiler reserves their footprints and turns and places them. See [community-slabs.md](community-slabs.md).
+
 ## Trace mode
 
 `src/core/trace.js` reads a top-down map image:
@@ -197,7 +201,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 ## Testing
 
-- `npm test`: 78 unit tests, covering:
+- `npm test`: 88 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - reading asset packs through the Symbiote API: skipping packs TaleSpire cannot describe, and accepting pack contents in shapes other than the documented arrays
@@ -206,6 +210,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
   - chunking and registration
   - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, schema step-down on grammar-size errors, refusals, retries, quota errors, usage and cost
   - the plan and trace schemas against OpenAI's strict-mode rules
+  - community slabs: the mod.io client against a fake mod.io, reading slabs from zips and other uploads, quarter turns checked against the compiler, assembly and credits
   - tracing, the PNG codec, and the bundle
 - `npm run test:e2e`: the real Symbiote in Chromium (Playwright) with a fake `TS` API and fake Anthropic and OpenAI endpoints, from prompt to a decodable slab in the GM's hand, plus screenshots. It also switches provider and model in Settings and checks the cost labels, the request sent to each API, and the cost shown on the result.
 - `npm run test:live`: real API calls (a small room, a tavern, a refine, a traced map and the cheapest model), capped at $1.50 by default. Pass `--provider openai` or `--model ID` to choose.
@@ -244,6 +249,10 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 | `src/core/http.js` | Shared error type, SSE reader, JSON parsing |
 | `src/core/planner.js` | Prompts, plan generation, trace labelling |
 | `src/core/trace.js` | Image → labelled raster |
+| `src/core/modio.js` | mod.io client: TaleSpire slab search, download, reading slab files |
+| `src/core/zip.js` | Minimal zip reader and writer (mod.io files are zips) |
+| `src/core/prefab.js` | Community slabs as prefabs: analysis, quarter turns, placement |
+| `src/core/community.js` | The community flow: AI searches, gathering, composing |
 | `src/core/png.js` | PNG decode/encode for the CLI |
 | `src/core/probe.js` | Calibration builds |
 | `src/core/demo-catalog.js` | Synthetic catalog for tests and previews (fake GUIDs) |

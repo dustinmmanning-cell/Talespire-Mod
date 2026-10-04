@@ -198,9 +198,24 @@ const kitName = (v) => `${KIT_PREFIX}${v.slice(KIT_PREFIX.length).trim().slice(0
 
 // The plan schema with this library's building kits added to the wall and
 // floor choices ("kit:Concrete Building"). kits: Catalog.buildingKits().
-export function planSchema(kits = []) {
-  if (!kits.length) return PLAN_SCHEMA;
+// prefabRefs: community slabs the model may place (adds a required "prefabs").
+export function planSchema(kits = [], prefabRefs = []) {
+  if (!kits.length && !prefabRefs.length) return PLAN_SCHEMA;
   const schema = JSON.parse(JSON.stringify(PLAN_SCHEMA));
+  if (prefabRefs.length) {
+    schema.properties.prefabs = {
+      type: 'array',
+      description: 'community slabs placed whole: x, y is the top-left tile of the footprint after rotation',
+      items: obj({
+        ref: en(prefabRefs, 'which community slab'),
+        x: int('left tile of the rotated footprint'),
+        y: int('top tile of the rotated footprint'),
+        rotation: en([0, 90, 180, 270].map(String), 'degrees clockwise'),
+      }),
+    };
+    schema.required = [...schema.required, 'prefabs'];
+  }
+  if (!kits.length) return schema;
   const st = schema.properties.structures.items.properties;
   st.wall.enum = [...st.wall.enum, ...kits.map((k) => `${KIT_PREFIX}${k.group}`)];
   st.wall.description += '; or one of the library\'s own building kits, "kit:<group>"';
@@ -276,6 +291,7 @@ export function normalizePlan(input, { maxTiles = MAX_MAP_TILES } = {}) {
     barriers: [],
     props: [],
     scatter: [],
+    prefabs: [],
     notes: text(input.notes),
   };
 
@@ -337,6 +353,12 @@ export function normalizePlan(input, { maxTiles = MAX_MAP_TILES } = {}) {
 
   for (const st of plan.structures) if (st.upperFloors.length) st.storeys = 1 + st.upperFloors.length;
   mergeNestedStructures(plan, warn);
+
+  for (const pf of arr(input.prefabs).slice(0, 200)) {
+    if (!pf || typeof pf !== 'object' || typeof pf.ref !== 'string' || !pf.ref.trim()) continue;
+    const rotation = (((Math.round(Number(pf.rotation) / 90) || 0) % 4) + 4) % 4 * 90;
+    plan.prefabs.push({ ref: pf.ref.trim().slice(0, 80), x: clampInt(pf.x, 0, W - 1, 0), y: clampInt(pf.y, 0, H - 1, 0), rotation });
+  }
 
   for (const b of arr(input.barriers)) {
     const points = arr(b && b.points).map((p) => cleanPoint(p, W, H)).filter(Boolean);

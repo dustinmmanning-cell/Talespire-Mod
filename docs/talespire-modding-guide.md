@@ -291,6 +291,7 @@ See [slab-format.md](slab-format.md) for the byte layout, GUID order, size limit
 - `talespire://symbiote/<system_segment>/<user_segment>` delivers text to a Symbiote. Get the prefix from `TS.urls.createUrlPrefixForThisSymbiote()` (requires an interop ID).
 - The official Slab Stats example opens `talespire://asset/<id>` from a Symbiote **[verified, example code]**.
 - There is **no** URL that imports a board or slab. Pasting is the only way to bring in a build.
+- Since October 2023 the in-game **slab browser** searches and publishes community slabs on mod.io (the official TaleSpire repository). Slabs spawn without subscribing; TaleSpire downloads them to a temporary file on first use. **[reported, Bouncyrock news and dev logs]** TaleForge reads the same repository through the mod.io API; see [community-slabs.md](community-slabs.md).
 
 ---
 

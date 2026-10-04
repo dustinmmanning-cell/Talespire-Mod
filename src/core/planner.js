@@ -5,6 +5,7 @@ import { parseJsonText } from './http.js';
 import { PLAN_SCHEMA, normalizePlan, planSchema, MAX_MAP_TILES } from './plan.js';
 import { STYLES, SURFACES, WALL_MATERIALS, STYLE_PRESETS } from './kit.js';
 import { TRACE_MEANINGS } from './trace.js';
+import { describePrefab } from './prefab.js';
 
 export const SIZE_PRESETS = {
   auto: null,
@@ -92,7 +93,7 @@ export function imageGuidance(imageMode) {
 }
 
 // image: { mediaType: 'image/png'|'image/jpeg'|'image/webp'|'image/gif', data: base64 }
-export function buildUserContent({ prompt, size, style, image, imageMode, previousPlan }) {
+export function buildUserContent({ prompt, size, style, image, imageMode, previousPlan, prefabs }) {
   const content = [];
   if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } });
   const lines = [];
@@ -108,8 +109,27 @@ export function buildUserContent({ prompt, size, style, image, imageMode, previo
     lines.push(style && STYLES.includes(style) ? `Style: ${style}.` : 'Style: choose the best fit.');
     if (image) lines.push(imageGuidance(imageMode));
   }
+  if (prefabs && prefabs.length) lines.push('', prefabSection(prefabs));
   content.push({ type: 'text', text: lines.join('\n') });
   return content;
+}
+
+// Community slabs the model may place whole (see community.js).
+export function prefabSection(prefabs) {
+  const lines = prefabs.map((pf) => {
+    const bits = [`${pf.ref}: "${pf.name}"${pf.creator ? ` by ${pf.creator}` : ''}`, describePrefab(pf)];
+    if (pf.tags && pf.tags.length) bits.push(`tags: ${pf.tags.slice(0, 6).join(', ')}`);
+    if (pf.summary) bits.push(`"${pf.summary.replace(/\s+/g, ' ').slice(0, 140)}"`);
+    return `- ${bits.join(' | ')}`;
+  });
+  return `# Community slabs you can place
+Finished builds by other TaleSpire players, from mod.io. Place the ones that suit the request whole, with prefabs: [{ref, x, y, rotation}]:
+- rotation is 0, 90, 180 or 270 degrees clockwise. A WxD slab turned 90 or 270 covers D x W tiles. x, y is the top-left tile of the footprint after turning.
+- Door sides are for rotation 0; each 90 degrees moves them one side clockwise (n -> e -> s -> w). Turn slabs so their doors face the street or square, and run paths to them.
+- Keep at least one tile between slabs, and never overlap a slab with another slab or with a structure.
+- Use them instead of drawing your own building wherever one fits; draw only what is missing (roads, terrain, walls, small buildings). A slab may be placed more than once (a row of houses).
+- Size the map so the slabs fit with room for streets.
+${lines.join('\n')}`;
 }
 
 function stripForPrompt(plan) {
@@ -136,7 +156,7 @@ export async function generatePlan(opts) {
     schemaName: 'build_plan',
     system,
     messages,
-    schema: opts.catalog && opts.catalog.buildingKits && !(opts.catalog.meta && opts.catalog.meta.synthetic) ? planSchema(opts.catalog.buildingKits()) : PLAN_SCHEMA,
+    schema: planSchemaFor(opts),
     onProgress: opts.onProgress,
     signal: opts.signal,
     fetchImpl: opts.fetchImpl,
@@ -145,6 +165,12 @@ export async function generatePlan(opts) {
   const raw = parseJsonText(out.text);
   const { plan, warnings } = normalizePlan(raw);
   return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, schemaMode: out.schemaMode, raw };
+}
+
+function planSchemaFor(opts) {
+  const kits = opts.catalog && opts.catalog.buildingKits && !(opts.catalog.meta && opts.catalog.meta.synthetic) ? opts.catalog.buildingKits() : [];
+  const refs = (opts.prefabs || []).map((p) => p.ref);
+  return kits.length || refs.length ? planSchema(kits, refs) : PLAN_SCHEMA;
 }
 
 // ---- trace mode: label colour clusters of a traced map image ----------------

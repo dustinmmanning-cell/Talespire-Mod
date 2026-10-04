@@ -19,13 +19,16 @@ const DEFAULT_SETTINGS = {
   overrides: {},
   // measured cost per model from the user's own builds: { [modelId]: { n, total } }
   usageStats: {},
+  modioKey: '',
+  modioBase: '',
+  useCommunity: false,
 };
 
 // Settings saved by older versions had one Anthropic key/model/base URL.
 function migrateSettings(saved) {
   const out = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   if (!saved) return out;
-  for (const k of ['provider', 'effort', 'facing', 'overrides', 'usageStats']) if (saved[k] !== undefined) out[k] = saved[k];
+  for (const k of ['provider', 'effort', 'facing', 'overrides', 'usageStats', 'modioKey', 'modioBase', 'useCommunity']) if (saved[k] !== undefined) out[k] = saved[k];
   for (const k of ['keys', 'models', 'customModels', 'baseUrls']) if (saved[k]) out[k] = { ...out[k], ...saved[k] };
   if (saved.apiKey && !out.keys.anthropic) out.keys.anthropic = saved.apiKey;
   if (saved.model && /^claude-/.test(saved.model) && !(saved.models && saved.models.anthropic)) out.models.anthropic = saved.model;
@@ -73,6 +76,9 @@ const state = {
   abort: null,
   image: null,
   traceImage: null,
+  prefabLib: new Map(), // community slabs: ref -> { text, how, item }
+  prefabs: new Map(), // analyzed against the current catalog: ref -> prefab
+  community: null, // what the last community search found
   trace: null,
   traceLabels: null,
   traceExtras: null,
@@ -202,9 +208,11 @@ async function boot(inTS) {
   $('version').textContent = '0.1.0';
   const stored = await loadBlob('global');
   state.settings = migrateSettings(stored && stored.settings);
+  await loadPrefabLib();
   const camp = await loadBlob('campaign');
   state.history = (camp && camp.history) || [];
   renderSettings();
+  renderCommunityToggle();
   renderHistory();
   if (!state.inTS) {
     banner('demo', 'Running outside TaleSpire: using a synthetic demo catalog. Builds preview fine, but slabs only work inside the game.');
@@ -275,6 +283,7 @@ async function readCatalog() {
       state.packInfos = res.infos;
       state.packNames = res.names;
       state.catalog = TF.Catalog.fromContentPacks(res.infos, res.names);
+      state.prefabs = new Map(); // re-check community slabs against the new library
       if (!state.catalog.size) throw new Error(`your ${res.infos.length} asset pack(s) contain no tiles or props`);
     } else {
       state.catalog = TF.demoCatalog();
@@ -361,6 +370,10 @@ function progressReporter(boxId, textId) {
       else if (ev.phase === 'writing') el.dataset.phase = `Drawing the map (${Math.round(ev.textChars / 1000)}k chars)…`;
       else if (ev.phase === 'retrying') el.dataset.phase = `Retrying (attempt ${ev.attempt})…`;
       else if (ev.phase === 'fallback') el.dataset.phase = `Continuing on ${ev.model}…`;
+      else if (ev.phase === 'scouting') el.dataset.phase = `Asking ${who} what to look for on mod.io…`;
+      else if (ev.phase === 'searching') el.dataset.phase = `Searching mod.io for "${ev.query}"…`;
+      else if (ev.phase === 'downloading') el.dataset.phase = `Reading community slabs (${ev.done}/${ev.total})…`;
+      else if (ev.phase === 'composing') el.dataset.phase = `${who} is arranging ${ev.count} community slab(s)…`;
     },
     done() {
       clearInterval(timer);
@@ -525,14 +538,77 @@ function currentKit(style) {
   return new TF.Kit(state.catalog, { style, overrides: state.settings.overrides });
 }
 
+// ---------------------------------------------------------------------------
+// community slabs: downloaded slab text by ref, kept between builds so plans
+// that place them can be rebuilt (Plan JSON, Recent builds)
+
+const PREFAB_LIB_MAX = 40;
+
+async function loadPrefabLib() {
+  const stored = (await loadBlob('global')) || {};
+  state.prefabLib = new Map(Array.isArray(stored.prefabLib) ? stored.prefabLib : []);
+}
+
+async function savePrefabLib(keep = []) {
+  // newest (and the ones this plan uses) last, so they survive the cap
+  for (const ref of keep) {
+    const e = state.prefabLib.get(ref);
+    if (e) {
+      state.prefabLib.delete(ref);
+      state.prefabLib.set(ref, e);
+    }
+  }
+  const entries = [...state.prefabLib].slice(-PREFAB_LIB_MAX);
+  state.prefabLib = new Map(entries);
+  const stored = (await loadBlob('global')) || {};
+  await saveBlob('global', { ...stored, settings: state.settings, prefabLib: entries });
+}
+
+// Analyzed prefabs for every ref a plan places that we have the slab for.
+async function prefabsFor(plan) {
+  const out = new Map();
+  for (const ref of new Set((plan.prefabs || []).map((p) => p.ref))) {
+    if (state.prefabs.has(ref)) {
+      out.set(ref, state.prefabs.get(ref));
+      continue;
+    }
+    const e = state.prefabLib.get(ref);
+    if (!e) continue;
+    try {
+      const it = e.item || {};
+      const pf = await TF.prefabFromSlab(e.text, state.catalog, { ref, name: it.name, creator: it.creator, url: it.url, summary: it.summary, tags: it.tags, how: e.how });
+      state.prefabs.set(ref, pf);
+      out.set(ref, pf);
+    } catch (err) {
+      debug(`prefab ${ref}: ${err.message}`);
+    }
+  }
+  return out;
+}
+
+function modioClient() {
+  const s = state.settings;
+  if (!s.modioKey) throw new Error('Add your mod.io API key in Settings to build with community slabs.');
+  return new TF.ModioClient({ apiKey: s.modioKey, baseUrl: s.modioBase || TF.MODIO_BASE });
+}
+
+function renderCommunityToggle() {
+  const has = !!state.settings.modioKey;
+  $('use-community').disabled = !has;
+  $('use-community').checked = has && !!state.settings.useCommunity;
+  show('community-hint', !has);
+}
+
 // ai: { what, model, provider, tokens, cost } for AI-made plans, null for
 // hand-made ones; omitted on rebuilds of the same plan (keeps the last value).
 async function buildAndShow(plan, { warnings = [], remember = true, ai } = {}) {
   if (!state.catalog) throw new Error('The asset library is not loaded yet.');
+  const prefabs = await prefabsFor(plan);
   const build = await TF.buildSlabs(plan, currentKit(plan.style), {
     seed: state.seed,
     furnitureFacing: Number(state.settings.facing) || 0,
     maxBytes: Math.min(TF.DEFAULT_CHUNK_BUDGET, state.maxSlabBytes - 1500),
+    prefabs,
   });
   build.warnings.unshift(...warnings);
   if (ai !== undefined) state.ai = ai;
@@ -563,8 +639,9 @@ async function onGenerate() {
   state.abort = new AbortController();
   busy(true);
   const p = progressReporter('progress', 'progress-text');
+  const community = $('use-community').checked;
   try {
-    const res = await TF.generatePlan({
+    const args = {
       ...opts,
       prompt: $('prompt').value.trim(),
       size,
@@ -574,7 +651,17 @@ async function onGenerate() {
       catalog: state.catalog,
       onProgress: p.update,
       signal: state.abort.signal,
-    });
+    };
+    let res;
+    if (community) {
+      res = await TF.generateCommunityPlan({ ...args, modio: modioClient(), cache: state.prefabLib });
+      for (const [ref, pf] of res.prefabs) state.prefabs.set(ref, pf);
+      state.community = { searches: res.searches, candidates: res.candidates, rejected: res.rejected, found: res.found };
+      await savePrefabLib(res.plan.prefabs.map((x) => x.ref));
+    } else {
+      res = await TF.generatePlan(args);
+      state.community = null;
+    }
     state.seed = 1;
     debug(`plan from ${res.model}: ${res.usage.outputTokens} output tokens, ${TF.formatCost(res.cost)}${res.schemaMode ? `, schema ${res.schemaMode}` : ''}`);
     recordUsage(res);
@@ -603,7 +690,11 @@ async function onRefine() {
   busy(true);
   const p = progressReporter('refine-progress', 'refine-progress-text');
   try {
-    const res = await TF.generatePlan({ ...opts, prompt: change, previousPlan: state.plan, catalog: state.catalog, onProgress: p.update, signal: state.abort.signal });
+    // the slabs this plan places, plus the others found last time, stay available
+    const offered = new Map();
+    for (const pf of (state.community && state.community.candidates) || []) offered.set(pf.ref, pf);
+    for (const [ref, pf] of await prefabsFor(state.plan)) offered.set(ref, pf);
+    const res = await TF.generatePlan({ ...opts, prompt: change, previousPlan: state.plan, catalog: state.catalog, prefabs: [...offered.values()], onProgress: p.update, signal: state.abort.signal });
     $('refine-prompt').value = '';
     recordUsage(res);
     await buildAndShow(res.plan, { warnings: res.warnings, ai: aiInfo(res, 'Refined') });
@@ -736,6 +827,41 @@ function setLabel(index, patch) {
 
 // ---- result ----
 
+function renderCredits(b) {
+  const credits = b.credits || [];
+  show('r-community', credits.length > 0 || !!state.community);
+  const ul = $('r-credits');
+  ul.replaceChildren();
+  for (const c of credits) {
+    const li = document.createElement('li');
+    li.append(`${c.name}${c.creator ? ` by ${c.creator}` : ''}`);
+    if (c.url) {
+      const small = document.createElement('small');
+      small.textContent = c.url;
+      li.appendChild(small);
+    }
+    ul.appendChild(li);
+  }
+  const cm = state.community;
+  $('r-community-note').textContent = cm
+    ? `Searched mod.io for ${cm.searches.map((s) => `"${s.query}"`).join(', ')}: ${cm.found} slab(s) found, ${cm.candidates.length} usable, ${credits.length} placed.` +
+      (cm.rejected.length ? ` Not usable: ${cm.rejected.slice(0, 4).map((r) => `${r.name} (${r.reason})`).join('; ')}${cm.rejected.length > 4 ? '…' : ''}.` : '')
+    : '';
+}
+
+// What the last community search found and how each slab was read, for bug reports.
+function modioReport() {
+  const cm = state.community || { searches: [], candidates: [], rejected: [], found: 0 };
+  return JSON.stringify({
+    taleforge: $('version').textContent,
+    searches: cm.searches,
+    found: cm.found,
+    usable: cm.candidates.map((c) => ({ ref: c.ref, name: c.name, how: c.how, size: `${c.w}x${c.d}`, floors: c.floors, doors: c.entrances, assets: c.count, genre: c.genre })),
+    notUsable: cm.rejected.map((r) => ({ ref: r.ref, name: r.name, reason: r.reason })),
+    placed: (state.build && state.build.credits) || [],
+  }, null, 1);
+}
+
 function renderResult() {
   const b = state.build;
   show('result-empty', false);
@@ -746,6 +872,7 @@ function renderResult() {
   const ai = state.ai;
   $('r-ai').textContent = ai ? `${ai.what} by ${modelName(ai.model)} · ${ai.tokens.toLocaleString()} tokens · ${ai.cost === null ? 'cost unknown' : TF.formatCost(ai.cost)}` : '';
   show('r-ai', !!ai);
+  renderCredits(b);
   $('r-stats').textContent = `${b.plan.width}×${b.plan.height} tiles (${b.plan.width * 5}×${b.plan.height * 5} ft) · ${b.stats.total.toLocaleString()} assets (${b.stats.tiles.toLocaleString()} tiles, ${b.stats.props.toLocaleString()} props)`;
   const steps = $('r-steps');
   steps.replaceChildren();
@@ -982,6 +1109,8 @@ function renderSettings() {
   if (!sel.options.length) for (const p of Object.values(TF.PROVIDERS)) sel.add(new Option(p.label, p.id));
   $('effort').value = state.draft.effort;
   $('facing').value = String(state.draft.facing || 0);
+  $('modio-key').value = state.draft.modioKey || '';
+  $('modio-base').value = state.draft.modioBase || '';
   renderProviderFields();
 }
 
@@ -1030,11 +1159,14 @@ async function onSaveSettings() {
   d.customModels[d.provider] = $('custom-model').value.trim();
   d.effort = $('effort').value;
   d.facing = Number($('facing').value) || 0;
+  d.modioKey = $('modio-key').value.trim();
+  d.modioBase = $('modio-base').value.trim();
   const facingChanged = d.facing !== state.settings.facing;
   state.settings = JSON.parse(JSON.stringify(d));
   await saveSettings();
   banner('key', state.settings.keys[state.settings.provider] ? null : keyBannerText());
   renderModelLine();
+  renderCommunityToggle();
   show('settings-saved');
   setTimeout(() => show('settings-saved', false), 2000);
   if (state.plan && facingChanged) await buildAndShow(state.plan, { remember: false });
@@ -1116,6 +1248,11 @@ function wireUi() {
     if (state.plan) await buildAndShow(state.plan, { remember: false });
     else renderKit();
   });
+  $('use-community').addEventListener('change', () => {
+    state.settings.useCommunity = $('use-community').checked;
+    saveSettings();
+  });
+  $('r-modio-report').addEventListener('click', () => copyText(modioReport(), 'mod.io report copied. Paste it to the developer.'));
   $('pack-diagnostics').addEventListener('click', () => copyText(packDiagnostics(), 'Pack diagnostics copied. Paste them to the developer.'));
   $('catalog-export').addEventListener('click', () => state.catalog && copyText(JSON.stringify(state.catalog.toJSON()), `Catalog copied (${state.catalog.size} assets). Save it as a .json file for the CLI.`));
   $('settings-save').addEventListener('click', onSaveSettings);

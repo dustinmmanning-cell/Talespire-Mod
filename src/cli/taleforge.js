@@ -11,12 +11,15 @@ import {
   traceToPlan, autoGridSize, resizeRgba, decodePng, encodePng, sniffImageType, decodeSlab, encodeSlab, demoCatalog,
   normalizePlan, probePlan, facingProbe, SIZE_PRESETS, describeKitReport, bytesToBase64, ApiError,
   PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, estimateBuildCost, formatCost,
+  ModioClient, MODIO_BASE, generateCommunityPlan, prefabFromSlab, describePrefab,
 } from '../core/index.js';
 
 const HELP = `TaleForge -- AI board builder for TaleSpire
 
 Usage:
   taleforge generate "<description>" [options]     plan with AI (Claude or GPT), build slabs
+  taleforge community "<description>" [options]    build with community slabs from mod.io
+  taleforge modio search <words>                   list TaleSpire slabs on mod.io
   taleforge refine <plan.json> "<change>" [options] edit an existing plan with AI
   taleforge build <plan.json> [options]            build slabs from a plan (no AI)
   taleforge trace <map.png> [options]              turn a top-down map image into slabs
@@ -43,6 +46,13 @@ Generation:
   --effort E          low | medium | high (default) | xhigh | max
   --api-key KEY       or set ANTHROPIC_API_KEY / OPENAI_API_KEY
   --base-url URL      API base URL, e.g. a proxy (or TALEFORGE_ANTHROPIC_BASE / TALEFORGE_OPENAI_BASE)
+
+Community slabs (mod.io):
+  --modio-key KEY     your read-only mod.io API key (or set MODIO_API_KEY)
+  --modio-base URL    mod.io API base URL (or TALEFORGE_MODIO_BASE; default ${MODIO_BASE})
+  --search WORDS      comma-separated searches instead of letting the AI choose
+  The slabs a plan uses are saved next to it as NAME.community.json, which
+  build and refine read back.
 
 Trace:
   --size WxH          grid size (default: 48 tiles on the long side)
@@ -171,23 +181,29 @@ function stemOf(title, flags) {
   return (title || 'build').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'build';
 }
 
-async function writeBuild(plan, catalog, flags, extraWarnings = []) {
+// community: { prefabs: Map ref -> prefab, candidates?: [prefab] } for plans that place community slabs.
+async function writeBuild(plan, catalog, flags, extraWarnings = [], { prefabs = new Map(), candidates = null } = {}) {
   const outDir = resolve(flags.out || 'out');
   mkdirSync(outDir, { recursive: true });
   const stem = stemOf(plan.title, flags);
   writeFileSync(join(outDir, `${stem}.plan.json`), JSON.stringify(plan, null, 2));
+  if (candidates && candidates.length) {
+    const slabs = candidates.map((c) => ({ ref: c.ref, name: c.name, creator: c.creator, url: c.url, summary: c.summary, tags: c.tags, how: c.how, size: describePrefab(c), text: c.slab }));
+    writeFileSync(join(outDir, `${stem}.community.json`), JSON.stringify({ note: 'Community slabs from mod.io; they belong to their creators.', slabs }, null, 1));
+  }
   if (flags['plan-only']) {
     log(`plan: ${join(outDir, `${stem}.plan.json`)}`);
     return;
   }
   const kit = loadKit(catalog, flags, plan.style);
   const build = await buildSlabs(plan, kit, {
-    seed: flags.seed, multiSlab: !flags['no-multislab'], furnitureFacing: flags.facing ? Number(flags.facing) : 0,
+    seed: flags.seed, multiSlab: !flags['no-multislab'], furnitureFacing: flags.facing ? Number(flags.facing) : 0, prefabs,
   });
   build.warnings.unshift(...extraWarnings);
   writeFileSync(join(outDir, `${stem}.svg`), build.svg);
   writeFileSync(join(outDir, `${stem}.report.md`), textReport(build));
-  const written = [`${stem}.plan.json`, `${stem}.svg`, `${stem}.report.md`];
+  const written = [`${stem}.plan.json`, ...(candidates && candidates.length ? [`${stem}.community.json`] : []), `${stem}.svg`, `${stem}.report.md`];
+  for (const c of build.credits || []) log(`  community slab: ${c.name}${c.creator ? ` by ${c.creator}` : ''} ${c.url}`);
   if (catalog.meta && catalog.meta.synthetic) {
     log('demo catalog: skipping slab files (their asset ids are not real)');
   } else {
@@ -220,6 +236,10 @@ function progress() {
     else if (ev.phase === 'thinking') line = `thinking... ${secs}s`;
     else if (ev.phase === 'writing') line = `drawing the plan... ${ev.textChars} chars, ${secs}s`;
     else if (ev.phase === 'fallback') line = `continuing on fallback model ${ev.model}`;
+    else if (ev.phase === 'scouting') line = 'asking the model what to search mod.io for...';
+    else if (ev.phase === 'searching') line = `searching mod.io for "${ev.query}"...`;
+    else if (ev.phase === 'downloading') line = `reading community slabs ${ev.done}/${ev.total}...`;
+    else if (ev.phase === 'composing') line = `arranging ${ev.count} community slab(s)...`;
     if (line && line !== last) {
       process.stderr.write(`\r${line.padEnd(60)}`);
       last = line;
@@ -273,15 +293,66 @@ async function cmdGenerate(args) {
   await writeBuild(res.plan, catalog, flags, res.warnings);
 }
 
+function modioFrom(flags) {
+  const apiKey = flags['modio-key'] || process.env.MODIO_API_KEY;
+  if (!apiKey) fail('set MODIO_API_KEY (or --modio-key): a free read-only key from mod.io > Account > API access');
+  return new ModioClient({ apiKey, baseUrl: flags['modio-base'] || process.env.TALEFORGE_MODIO_BASE || MODIO_BASE });
+}
+
+// NAME.community.json next to a plan: the community slabs it may use.
+function communityFile(planFile) {
+  return planFile.replace(/(\.plan)?\.json$/i, '') + '.community.json';
+}
+
+async function loadCommunity(planFile, catalog, flags) {
+  const file = flags.community || communityFile(planFile);
+  if (!existsSync(file)) return new Map();
+  const out = new Map();
+  for (const e of JSON.parse(readFileSync(file, 'utf8')).slabs || []) {
+    try {
+      out.set(e.ref, await prefabFromSlab(e.text, catalog, { ref: e.ref, name: e.name, creator: e.creator, url: e.url, summary: e.summary, tags: e.tags, how: e.how }));
+    } catch (err) {
+      log(`  ! ${e.ref}: ${err.message}`);
+    }
+  }
+  return out;
+}
+
+async function cmdCommunity(args) {
+  const { flags } = args;
+  const prompt = args._[1];
+  if (!prompt) fail('describe what to build, e.g. taleforge community "a harbour village with a tavern and a lighthouse"');
+  const catalog = loadCatalog(flags);
+  if (catalog.meta && catalog.meta.synthetic) fail('community slabs need your real asset catalog (--talespire DIR or --catalog FILE), to check every slab uses assets you have');
+  const searches = flags.search ? String(flags.search).split(',').map((q) => ({ query: q.trim(), purpose: '' })).filter((q) => q.query) : undefined;
+  const res = await withAi(() => generateCommunityPlan({
+    ...apiOptions(flags), prompt, size: parseSize(flags.size), style: flags.style, catalog, modio: modioFrom(flags), searches, onProgress: progress(),
+  }));
+  log(`searched mod.io for ${res.searches.map((x) => `"${x.query}"`).join(', ')}: ${res.found} found, ${res.candidates.length} usable`);
+  for (const r of res.rejected) log(`  - not usable: ${r.name} by ${r.creator || '?'} (${r.reason})`);
+  log(`plan "${res.plan.title}" from ${usageLine(res)}`);
+  await writeBuild(res.plan, catalog, flags, res.warnings, { prefabs: res.prefabs, candidates: res.candidates });
+}
+
+async function cmdModio(args) {
+  const { flags } = args;
+  const [, sub, ...words] = args._;
+  if (sub !== 'search') fail('usage: taleforge modio search <words>');
+  const res = await withAi(() => modioFrom(flags).searchSlabs(words.join(' '), { limit: Number(flags.limit) || 20 }));
+  log(`${res.total} TaleSpire slab(s) on mod.io${res.tag ? ` tagged ${res.tag}` : ''} for "${words.join(' ')}":`);
+  for (const it of res.items) log(`  ${it.ref.padEnd(14)} ${it.name}${it.creator ? ` by ${it.creator}` : ''}  ${it.url}`);
+}
+
 async function cmdRefine(args) {
   const { flags } = args;
   const [, planFile, change] = args._;
   if (!planFile || !change) fail('usage: taleforge refine <plan.json> "<what to change>"');
   const catalog = loadCatalog(flags);
   const previousPlan = JSON.parse(readFileSync(planFile, 'utf8'));
-  const res = await withAi(() => generatePlan({ ...apiOptions(flags), prompt: change, previousPlan, catalog, onProgress: progress() }));
+  const prefabs = await loadCommunity(planFile, catalog, flags);
+  const res = await withAi(() => generatePlan({ ...apiOptions(flags), prompt: change, previousPlan, catalog, prefabs: [...prefabs.values()], onProgress: progress() }));
   log(`plan "${res.plan.title}" from ${usageLine(res)}`);
-  await writeBuild(res.plan, catalog, flags, res.warnings);
+  await writeBuild(res.plan, catalog, flags, res.warnings, { prefabs, candidates: [...prefabs.values()] });
 }
 
 async function cmdBuild(args) {
@@ -290,7 +361,8 @@ async function cmdBuild(args) {
   if (!planFile) fail('usage: taleforge build <plan.json>');
   const catalog = loadCatalog(flags);
   const { plan, warnings } = normalizePlan(JSON.parse(readFileSync(planFile, 'utf8')));
-  await writeBuild(plan, catalog, flags, warnings);
+  const prefabs = plan.prefabs.length ? await loadCommunity(planFile, catalog, flags) : new Map();
+  await writeBuild(plan, catalog, flags, warnings, { prefabs });
 }
 
 async function cmdTrace(args) {
@@ -421,16 +493,40 @@ function cmdProxy(args) {
     '/v1/messages': { key: process.env.ANTHROPIC_API_KEY, base: process.env.TALEFORGE_ANTHROPIC_BASE || process.env.TALEFORGE_API_BASE || PROVIDERS.anthropic.baseUrl, provider: 'anthropic' },
     '/v1/responses': { key: process.env.OPENAI_API_KEY, base: process.env.TALEFORGE_OPENAI_BASE || PROVIDERS.openai.baseUrl, provider: 'openai' },
   };
-  if (!routes['/v1/messages'].key && !routes['/v1/responses'].key) fail('set ANTHROPIC_API_KEY and/or OPENAI_API_KEY for the proxy to use');
+  if (!routes['/v1/messages'].key && !routes['/v1/responses'].key) log('no ANTHROPIC_API_KEY or OPENAI_API_KEY: relaying mod.io only');
+  const modioBase = (process.env.TALEFORGE_MODIO_BASE || MODIO_BASE).replace(/\/v1\/?$/, '');
   const server = createServer(async (req, res) => {
     const cors = {
       'access-control-allow-origin': '*',
       'access-control-allow-headers': 'content-type, authorization, x-api-key, anthropic-version, anthropic-beta, anthropic-dangerous-direct-browser-access',
-      'access-control-allow-methods': 'POST, OPTIONS',
+      'access-control-allow-methods': 'GET, POST, OPTIONS',
     };
     if (req.method === 'OPTIONS') {
       res.writeHead(204, cors);
       res.end();
+      return;
+    }
+    // mod.io: GET /modio/v1/... -> the mod.io API (with the Symbiote's key, or
+    // MODIO_API_KEY when it sends "proxy"); GET /modio/download?url= -> a mod.io file.
+    if (req.method === 'GET' && req.url.startsWith('/modio/')) {
+      try {
+        const u = new URL(req.url, 'http://proxy');
+        let target;
+        if (u.pathname === '/modio/download') {
+          target = new URL(u.searchParams.get('url') || '');
+          if (target.protocol !== 'https:' || !/(^|\.)(mod\.io|modapi\.io|modcdn\.io)$/.test(target.hostname)) throw new Error('only mod.io file URLs');
+        } else {
+          target = new URL(`${modioBase}${u.pathname.slice('/modio'.length)}${u.search}`);
+          if (target.searchParams.get('api_key') === 'proxy' && process.env.MODIO_API_KEY) target.searchParams.set('api_key', process.env.MODIO_API_KEY);
+        }
+        const up = await fetch(target);
+        res.writeHead(up.status, { ...cors, 'content-type': up.headers.get('content-type') || 'application/octet-stream' });
+        for await (const c of up.body) res.write(c);
+        res.end();
+      } catch (e) {
+        res.writeHead(502, cors);
+        res.end(JSON.stringify({ error: { code: 502, error_ref: 0, message: `proxy: ${e.message}` } }));
+      }
       return;
     }
     const route = routes[req.url];
@@ -467,6 +563,7 @@ function cmdProxy(args) {
     for (const [path, r] of Object.entries(routes)) log(`${r.key ? 'relaying' : 'no key for'} ${path} -> ${r.base}`);
     log(`TaleForge proxy on http://127.0.0.1:${port}`);
     log(`In the Symbiote settings set the provider's "API base URL" to http://127.0.0.1:${port} and its API key to "proxy".`);
+    log(`For mod.io, set "mod.io API base URL" to http://127.0.0.1:${port}/modio/v1 (key "proxy" uses MODIO_API_KEY).`);
   });
 }
 
@@ -477,7 +574,7 @@ async function main() {
     process.stdout.write(HELP);
     return;
   }
-  const commands = { generate: cmdGenerate, refine: cmdRefine, build: cmdBuild, trace: cmdTrace, catalog: cmdCatalog, kit: cmdKit, decode: cmdDecode, probe: cmdProbe, models: cmdModels, proxy: cmdProxy };
+  const commands = { community: cmdCommunity, modio: cmdModio, generate: cmdGenerate, refine: cmdRefine, build: cmdBuild, trace: cmdTrace, catalog: cmdCatalog, kit: cmdKit, decode: cmdDecode, probe: cmdProbe, models: cmdModels, proxy: cmdProxy };
   const fn = commands[cmd];
   if (!fn) fail(`unknown command "${cmd}". Run taleforge --help.`);
   await fn(args);

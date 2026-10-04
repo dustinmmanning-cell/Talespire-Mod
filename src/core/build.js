@@ -16,8 +16,9 @@ export function markerTile(kit) {
 }
 
 // -> compile result + { chunks, registered, multiSlab, svg }
-export async function buildSlabs(plan, kit, { seed, maxBytes = DEFAULT_CHUNK_BUDGET, multiSlab = true, furnitureFacing, previewScale } = {}) {
-  const result = compilePlan(plan, kit, { seed, furnitureFacing });
+// prefabs: community slabs the plan places, ref -> analyzed prefab (prefab.js).
+export async function buildSlabs(plan, kit, { seed, maxBytes = DEFAULT_CHUNK_BUDGET, multiSlab = true, furnitureFacing, previewScale, prefabs } = {}) {
+  const result = compilePlan(plan, kit, { seed, furnitureFacing, prefabs });
   if (result.placements.length === 0) throw new Error('The plan produced nothing to place. Is the asset catalog loaded?');
   const assetOf = (id) => kit.catalog.get(id);
   const vanilla = await chunkPlacements(result.placements, {
@@ -60,6 +61,10 @@ export function textReport(build) {
   lines.push(`Slabs: ${build.chunks.length} (${build.chunks.map((c) => `${c.compressedBytes} B`).join(', ')}).`, '');
   if (p.notes) lines.push('## GM notes', p.notes, '');
   lines.push('## How to paste', ...(build.chunks.length > 1 ? PASTE_HELP.multi : PASTE_HELP.single).map((l, i) => `${i + 1}. ${l}`), '');
+  if (build.credits && build.credits.length) {
+    lines.push('## Community slabs', 'From mod.io. They belong to their creators: fine for your games, but don\'t republish them as your own.');
+    lines.push(...build.credits.map((c) => `- ${c.name}${c.creator ? ` by ${c.creator}` : ''}${c.url ? ` (${c.url})` : ''}`), '');
+  }
   if (build.warnings.length) lines.push('## Warnings', ...build.warnings.map((w) => `- ${w}`), '');
   lines.push('## Assets used for each role', describeKitReport(build.kitReport));
   return lines.join('\n');

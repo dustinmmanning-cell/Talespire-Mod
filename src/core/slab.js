@@ -190,8 +190,10 @@ export function decodeSlabBinary(bytes) {
 
 async function pipeThrough(bytes, stream) {
   const writer = stream.writable.getWriter();
-  writer.write(bytes);
-  writer.close();
+  // Bad input fails both sides; the read below reports it, so the writer's
+  // promises must not become unhandled rejections.
+  writer.write(bytes).catch(() => {});
+  writer.close().catch(() => {});
   const chunks = [];
   let length = 0;
   const reader = stream.readable.getReader();

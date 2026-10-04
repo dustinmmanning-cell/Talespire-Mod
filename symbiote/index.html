@@ -72,6 +72,8 @@
       </div>
     </div>
 
+    <label class="check" id="community-box"><input type="checkbox" id="use-community"> Build with community slabs from mod.io</label>
+    <p class="hint hidden" id="community-hint">Add a mod.io API key in Settings to use community slabs.</p>
     <div class="actions">
       <button class="primary" id="generate">Generate</button>
       <button class="hidden" id="cancel">Cancel</button>
@@ -124,6 +126,13 @@
       <div id="r-preview" class="preview" title="Click to zoom"></div>
       <p id="r-stats" class="muted"></p>
       <p id="r-ai" class="muted small hidden"></p>
+      <div id="r-community" class="community hidden">
+        <h3>Community slabs</h3>
+        <ul id="r-credits" class="credits"></ul>
+        <p class="muted small" id="r-community-note"></p>
+        <p class="muted small">Community content from mod.io. These slabs belong to their creators: fine for your games, but don't republish them as your own.</p>
+        <button class="link" id="r-modio-report">Copy mod.io report</button>
+      </div>
 
       <div class="parts">
         <h3 id="r-parts-title">Place it</h3>
@@ -205,6 +214,13 @@
     </label>
     <p class="hint" id="cost-hint"></p>
     <label class="field"><span>API base URL</span><input id="base-url" type="url"></label>
+
+    <h3>Community slabs (mod.io)</h3>
+    <label class="field"><span>mod.io API key</span>
+      <input id="modio-key" type="password" autocomplete="off" placeholder="32 characters">
+    </label>
+    <p class="hint">Lets TaleForge search TaleSpire's community slab repository on mod.io and build with other players' slabs. The key is free and read-only: log in at mod.io, then open Account &gt; API access and generate one. Stored only in this Symbiote's folder and sent only to mod.io.</p>
+    <label class="field"><span>mod.io API base URL</span><input id="modio-base" type="url" placeholder="https://api.mod.io/v1"></label>
 
     <h3>Building</h3>
     <div class="row">

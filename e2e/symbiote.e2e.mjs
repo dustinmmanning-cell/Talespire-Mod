@@ -9,7 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
 import { demoCatalog } from '../src/core/demo-catalog.js';
-import { decodeSlab } from '../src/core/slab.js';
+import { decodeSlab, encodeSlab } from '../src/core/slab.js';
+import { compilePlan } from '../src/core/compile.js';
+import { Kit } from '../src/core/kit.js';
+import { zip } from '../src/core/zip.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -304,6 +307,75 @@ await page3.click('#catalog-status');
 await page3.waitForFunction(() => /\d assets$/.test(document.getElementById('catalog-status').textContent));
 assert.ok(!(await page3.textContent('#banner')).includes('Could not read'), 'the error clears after a successful retry');
 await page3.close();
+
+// Community slabs: the AI plans mod.io searches, TaleForge downloads and reads
+// the slabs (a zip, as mod.io stores uploads), the AI places one, the result
+// credits its creator.
+const cottagePlan = {
+  title: 'c', summary: '', width: 10, height: 10, style: 'medieval', ground: 'none', areas: [], paths: [], barriers: [], props: [], scatter: [], notes: '',
+  structures: [{ id: 'c', label: 'C', kind: 'cottage', parts: [{ x: 1, y: 1, w: 6, h: 4 }], rooms: [], doors: [{ x: 3, y: 4, side: 's' }], wall: 'wood', floor: 'wood_floor', storeys: 1, roof: 'pitched', windows: 'few', interiorWalls: false, furnish: 'normal' }],
+};
+const cottageSlab = (await encodeSlab(compilePlan(cottagePlan, new Kit(demoCatalog())).placements)).text;
+const cottageZip = Buffer.from(await zip([{ name: 'preview.png', data: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }, { name: 'slab.txt', data: cottageSlab }]));
+const lanePlan = {
+  title: 'Cottage Lane', summary: 'Two cottages on a lane.', width: 24, height: 16, style: 'medieval', ground: 'grass', areas: [], barriers: [], props: [], scatter: [], notes: '', structures: [],
+  paths: [{ label: 'lane', material: 'dirt', width: 2, points: [[0.5, 8], [23.5, 8]] }],
+  prefabs: [{ ref: 'modio:1', x: 2, y: 1, rotation: '0' }, { ref: 'modio:1', x: 12, y: 10, rotation: '180' }],
+};
+const page4 = await browser.newPage({ viewport: { width: 460, height: 900 } });
+page4.on('pageerror', (e) => errors.push(e.message));
+const modioCalls = [];
+const cors = { 'access-control-allow-origin': '*' };
+await page4.route('https://api.mod.io/**', async (route) => {
+  const u = new URL(route.request().url());
+  modioCalls.push(u.pathname + u.search);
+  const json = (body) => route.fulfill({ status: 200, headers: { 'content-type': 'application/json', ...cors }, body: JSON.stringify(body) });
+  if (u.pathname === '/v1/games') return json({ data: [{ id: 7, name_id: 'talespire', tag_options: [{ name: 'Type', tags: ['Slab', 'Symbiote'] }] }], result_total: 1 });
+  return json({ data: [{ id: 1, name: 'Cosy Cottage', summary: 'A little home', profile_url: 'https://mod.io/g/talespire/m/cosy-cottage', submitted_by: { username: 'maker1' }, tags: [{ name: 'Slab' }], modfile: { id: 10, filename: 'cottage.zip', download: { binary_url: 'https://g-7.modapi.io/v1/games/7/mods/1/files/10/download' } } }], result_total: 1 });
+});
+await page4.route('https://g-7.modapi.io/**', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'application/zip', ...cors }, body: cottageZip }));
+const aiBodies = [];
+await page4.route('https://api.anthropic.com/**', async (route) => {
+  const body = JSON.parse(route.request().postData());
+  aiBodies.push(body);
+  const scout = body.output_config.format && body.output_config.format.schema.properties.searches;
+  const reply = scout ? JSON.stringify({ searches: [{ query: 'cottage', purpose: 'homes' }], style: 'medieval' }) : JSON.stringify(lanePlan);
+  await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream', ...cors }, body: sse(reply) });
+});
+await page4.addInitScript(fakeTs, { packs: contentPacks() });
+await page4.goto('file://' + join(root, 'symbiote/index.html'));
+await page4.evaluate(() => window.handleStateChange({ kind: 'hasInitialized', payload: {} }));
+await page4.waitForFunction(() => /\d assets$/.test(document.getElementById('catalog-status').textContent));
+assert.ok(await page4.isDisabled('#use-community'), 'needs a mod.io key first');
+await page4.click('[data-tab="settings"]');
+await page4.fill('#api-key', 'sk-ant-test');
+await page4.fill('#modio-key', 'modio-key-123');
+await page4.click('#settings-save');
+await page4.click('[data-tab="create"]');
+await page4.check('#use-community');
+await page4.fill('#prompt', 'two cottages on a lane');
+await page4.click('#generate');
+await page4.waitForFunction(() => !document.getElementById('result').classList.contains('hidden') || !document.getElementById('create-error').classList.contains('hidden'), null, { timeout: 20000 });
+assert.equal(await page4.$eval('#create-error', (e) => (e.classList.contains('hidden') ? '' : e.textContent)), '');
+assert.equal(aiBodies.length, 2, 'one call to plan searches, one to compose');
+assert.ok(modioCalls.some((c) => c.startsWith('/v1/games/7/mods?') && c.includes('_q=cottage') && c.includes('tags=Slab') && c.includes('api_key=modio-key-123')), modioCalls.join(' '));
+assert.match(aiBodies[1].messages[0].content.at(-1).text, /modio:1: "Cosy Cottage" by maker1/);
+assert.equal(await page4.textContent('#r-credits'), 'Cosy Cottage by maker1https://mod.io/g/talespire/m/cosy-cottage');
+assert.match(await page4.textContent('#r-community-note'), /Searched mod.io for "cottage": 1 slab\(s\) found, 1 usable, 1 placed\./);
+assert.match(await page4.innerHTML('#r-preview'), /Cosy Cottage/);
+await page4.screenshot({ path: join(outDir, '9-community.png'), fullPage: true });
+await page4.click('#r-modio-report');
+const report = JSON.parse(await page4.evaluate(() => window.__clip.at(-1)));
+assert.match(report.usable[0].how, /zip entry "slab.txt"/);
+assert.equal(report.usable[0].size, '6x4');
+// rebuild from Plan JSON uses the kept slab without downloading again
+const downloadsBefore = modioCalls.length;
+await page4.click('details:has(#plan-json) summary');
+await page4.click('#plan-rebuild');
+await page4.waitForTimeout(300);
+assert.match(await page4.innerHTML('#r-preview'), /Cosy Cottage/);
+assert.equal(modioCalls.length, downloadsBefore);
+await page4.close();
 
 assert.deepEqual(errors, [], `page errors: ${errors.join('\n')}`);
 await browser.close();

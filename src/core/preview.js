@@ -3,7 +3,7 @@
 // the Symbiote UI and written next to the slabs by the CLI.
 
 export const MATERIAL_COLORS = {
-  grass: '#6d9b4a', dirt: '#8a6a45', mud: '#6b5338', gravel: '#9a9488', sand: '#d8c38e', snow: '#eef2f5',
+  concrete: '#9b9a96', asphalt: '#3e4046', metal_floor: '#6e7a84', grass: '#6d9b4a', dirt: '#8a6a45', mud: '#6b5338', gravel: '#9a9488', sand: '#d8c38e', snow: '#eef2f5',
   ice: '#bfe3f0', cobblestone: '#8c8c8c', flagstone: '#a39e93', stone_floor: '#7d7a76', wood_floor: '#a9773f',
   plank: '#9b6b3b', carpet: '#8e2d3a', marble: '#e6e1d8', tile: '#c9b79c', cave_floor: '#5f5650', water: '#3f7fbf',
   deep_water: '#2a5d91', swamp: '#5b6b3c', lava: '#d2491c', field: '#a58a4f',
@@ -134,6 +134,26 @@ function drawGrid(g, S, { chunks = null, labels = true } = {}) {
   out.push(`<path d="${walls.join('')}" stroke="#2a2522" stroke-width="${Math.max(2, S * 0.24)}" stroke-linecap="square"/>`);
   out.push(`<path d="${windows.join('')}" stroke="#9fd3f2" stroke-width="${Math.max(2, S * 0.18)}"/>`);
   out.push(`<path d="${doors.join('')}" stroke="#e8a33d" stroke-width="${Math.max(2, S * 0.3)}"/>`);
+
+  // community slabs: a sketch of their floors and walls, then their outline,
+  // name, creator and door sides
+  for (const t of g.prefabTiles || []) out.push(`<rect x="${(t.x * S).toFixed(1)}" y="${(t.y * S).toFixed(1)}" width="${(t.w * S).toFixed(1)}" height="${(t.h * S).toFixed(1)}" fill="${MATERIAL_COLORS[t.m] || '#9a8f80'}"/>`);
+  for (const wl of g.prefabWalls || []) out.push(`<rect x="${(wl.x * S).toFixed(1)}" y="${(wl.y * S).toFixed(1)}" width="${Math.max(2, wl.w * S).toFixed(1)}" height="${Math.max(2, wl.h * S).toFixed(1)}" fill="${wl.door ? '#e8a33d' : wl.window ? '#9fd3f2' : '#2a2522'}"/>`);
+  for (const pf of g.prefabs || []) {
+    const [x, y, w, h] = [pf.x * S, pf.y * S, pf.w * S, pf.h * S];
+    out.push(`<rect x="${x + 1}" y="${y + 1}" width="${w - 2}" height="${h - 2}" fill="none" stroke="#f0d28a" stroke-width="2" stroke-dasharray="7 4"/>`);
+    const ticks = [];
+    for (const side of pf.entrances || []) {
+      if (side === 'n') ticks.push(`M${x + w / 2 - S / 2} ${y + 2}H${x + w / 2 + S / 2}`);
+      if (side === 's') ticks.push(`M${x + w / 2 - S / 2} ${y + h - 2}H${x + w / 2 + S / 2}`);
+      if (side === 'w') ticks.push(`M${x + 2} ${y + h / 2 - S / 2}V${y + h / 2 + S / 2}`);
+      if (side === 'e') ticks.push(`M${x + w - 2} ${y + h / 2 - S / 2}V${y + h / 2 + S / 2}`);
+    }
+    if (ticks.length) out.push(`<path d="${ticks.join('')}" stroke="#e8a33d" stroke-width="${Math.max(3, S * 0.3)}"/>`);
+    const fs = Math.max(9, Math.min(13, S * 0.75));
+    out.push(`<text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2).toFixed(1)}" text-anchor="middle" font-size="${fs}" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${esc(pf.label)}</text>`);
+    if (pf.creator) out.push(`<text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2 + fs + 2).toFixed(1)}" text-anchor="middle" font-size="${Math.max(8, fs - 3)}" font-style="italic" fill="#f0e6d0" stroke="#000" stroke-width="2.5" paint-order="stroke">by ${esc(pf.creator)}</text>`);
+  }
 
   // stairs: a flight with its steps
   for (const st of g.stairs || []) {
