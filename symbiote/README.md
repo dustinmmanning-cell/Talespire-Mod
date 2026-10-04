@@ -27,6 +27,8 @@ Buildings can have several floors, each with its own shape, rooms and furniture.
 
 TaleForge never hardcodes asset ids: it looks up walls, floors and furniture in the content packs your TaleSpire has loaded. The **Kit** tab shows which asset fills each role and lets you override any of them.
 
+It uses both halves of TaleSpire's library. Fantasy styles build from the fantasy pieces; the **Modern**, **Cyberpunk** and **Sci-fi** styles build from the Cyberpunk and Sci-Fi pieces. **Kit > Your asset packs** lists every pack TaleForge loaded, with its counts, and the building kits it found: library groups with their own walls that a building can be made from.
+
 ## Calibrate
 
 Furniture orientation is not documented by the game. Use **Settings > Probes** to place small test builds and pick the facing that looks right.

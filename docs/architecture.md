@@ -65,6 +65,18 @@ Big variants (`… 2x2`) are found by name and used to cover uniform 2×2 blocks
 
 The **Kit** tab shows every resolution with game thumbnails and the reason it was chosen (`pinned`, `search`, `override`, `missing`).
 
+### Fantasy and sci-fi
+
+TaleSpire's library has a fantasy half and a "Cyberpunk and Sci-Fi" half. The catalog gives every asset a **genre** (`assignGenres` in `src/core/catalog.js`):
+
+- An asset whose own name says sci-fi ("sci fi chest 02", "neon …") is sci-fi.
+- A pack named as sci-fi, or with at least half its groups sci-fi-sounding (Concrete Building, Brick Building, Facility, Hull, Outpost, Doors (Modern), Street…), is sci-fi throughout.
+- Otherwise each group decides by its name.
+
+Each style has a genre. The fantasy styles never use sci-fi assets. The `modern`, `cyberpunk` and `scifi` styles prefer sci-fi assets and fall back to anything, since grass, trees and barrels are much the same. A sci-fi asset only gets that preference when it names the role as a whole word, so "street light" is never a tree. Sci-fi materials are `brick`, `concrete`, `metal` and `industrial` walls, and `concrete`, `asphalt` and `metal_floor` surfaces, searched first in the sci-fi pack's own groups. There are also sci-fi structure kinds (apartment, office, factory, garage, bunker, station, starship), room kinds (office, lab, bridge, quarters, cargo_bay, engine_room, medbay) and prop roles (computer, locker, vehicle, streetlight, machine…).
+
+**Building kits** are library groups that contain wall pieces, found by name and collider shape (`Catalog.buildingKits()`). A structure's wall or floor can name one as `kit:<group>`, for example `kit:Hull`. The kit then uses that group's own walls, windows, doors and floor. The model is shown the kits in the GM's library, and the plan schema sent with the request lists them as allowed wall and floor values. The Kit tab lists each pack with its genre and counts, and the kits found.
+
 ## The compiler
 
 `src/core/compile.js` is deterministic: the same plan, kit and seed always produce the same slab. It runs in stages:
@@ -185,11 +197,11 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 ## Testing
 
-- `npm test`: 70 unit tests, covering:
+- `npm test`: 78 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - reading asset packs through the Symbiote API: skipping packs TaleSpire cannot describe, and accepting pack contents in shapes other than the documented arrays
-  - kit resolution
+  - kit resolution, and fantasy versus sci-fi: genres, building kits, no sci-fi pieces in fantasy builds
   - compiler guarantees: walls, doors, reachability, open-plan dungeons, open rooms and nested buildings, upper floors (own footprints, stairs, terraces), roofs, fortifications, no prop overlaps, floors on the grid, determinism
   - chunking and registration
   - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, schema step-down on grammar-size errors, refusals, retries, quota errors, usage and cost
@@ -205,6 +217,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 - **No terrain height** yet: builds are flat ground with buildings, walls and roofs. Hills and cliffs are future work.
 - **Floors stay on the grid:** an upper floor can be shifted, turned 90° or overhang the floor below, but not set at an odd angle. Overhangs float, with no posts underneath.
 - **Explicit props are ground-floor only:** upper floors get furniture from their room kinds, not from the plan's `props`.
+- **The sci-fi materials are tuned from the pack's group names,** not from building with every piece. If a sci-fi wall or floor looks wrong, override it in the Kit tab, or ask for a building kit by name (`kit:Concrete Building`).
 - **Roof kits** are recognised by name (Thatched, Village, Haunted). Other kits fall back to flat roofs.
 - **Large towns** become several slabs and need careful same-cell pasting, unless you use the multi-paste plugin.
 - **CORS from the Symbiote** relies on each API accepting calls from a web page (Anthropic's browser-access header; OpenAI allows browser calls, which its SDK supports with `dangerouslyAllowBrowser`). If TaleSpire's web view blocks either, use the proxy.

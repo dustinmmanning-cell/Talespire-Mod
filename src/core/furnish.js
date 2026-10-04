@@ -150,6 +150,49 @@ export const ROOM_FURNITURE = {
     { role: 'mushroom', at: 'center', per: 12, max: 6 },
     { role: 'crystal', at: 'wall', per: 16, max: 3 },
   ],
+  office: [
+    { role: 'desk', at: 'wall', per: 8, min: 1, max: 4 },
+    { role: 'chair', at: 'around', per: 1, max: 1 },
+    { role: 'computer', at: 'wall', per: 10, max: 3 },
+    { role: 'cabinet', at: 'wall', max: 2 },
+    { role: 'plant', at: 'wall', max: 1 },
+  ],
+  lab: [
+    { role: 'table', at: 'center', per: 10, min: 1, max: 3 },
+    { role: 'computer', at: 'wall', per: 8, min: 1, max: 4 },
+    { role: 'machine', at: 'wall', max: 2 },
+    { role: 'cabinet', at: 'wall', max: 2 },
+    { role: 'crate', at: 'wall', max: 2 },
+  ],
+  bridge: [
+    { role: 'computer', at: 'wall', per: 4, min: 2, max: 8 },
+    { role: 'chair', at: 'center', per: 8, min: 1, max: 4 },
+    { role: 'locker', at: 'wall', max: 1 },
+  ],
+  quarters: [
+    { role: 'bed', at: 'wall', per: 8, min: 1, max: 4 },
+    { role: 'locker', at: 'wall', per: 8, min: 1, max: 4 },
+    { role: 'table', at: 'center', max: 1 },
+    { role: 'chair', at: 'around', max: 2 },
+  ],
+  cargo_bay: [
+    { role: 'crate', at: 'wall', per: 4, min: 2, max: 14 },
+    { role: 'barrel', at: 'wall', per: 8, max: 6 },
+    { role: 'machine', at: 'wall', max: 1 },
+    { role: 'locker', at: 'wall', max: 2 },
+  ],
+  engine_room: [
+    { role: 'machine', at: 'wall', per: 8, min: 1, max: 4 },
+    { role: 'pipes', at: 'wall', per: 6, max: 6 },
+    { role: 'computer', at: 'wall', max: 2 },
+    { role: 'crate', at: 'wall', max: 2 },
+  ],
+  medbay: [
+    { role: 'bed', at: 'wall', per: 6, min: 1, max: 4 },
+    { role: 'cabinet', at: 'wall', max: 2 },
+    { role: 'computer', at: 'wall', max: 2 },
+    { role: 'table', at: 'center', max: 1 },
+  ],
   stage: [
     { role: 'rug', at: 'center', max: 1 },
     { role: 'instrument', at: 'wall', min: 1, max: 2 },
@@ -171,6 +214,7 @@ export const STRUCTURE_ROOM = {
   tower: 'storage', keep: 'hall', castle: 'hall', barracks: 'barracks', barn: 'stable', stable: 'stable',
   warehouse: 'storage', hall: 'hall', library: 'library', guildhall: 'hall', mill: 'storage',
   ruin: 'lair', dungeon: 'lair', cave: 'cavern', crypt: 'crypt', mine: 'cavern', room: 'other', other: 'other',
+  apartment: 'quarters', office: 'office', factory: 'engine_room', garage: 'workshop', bunker: 'storage', station: 'cargo_bay', starship: 'bridge',
 };
 
 // Upstairs, when a plan only gives a storey count: ground-floor room kinds that
@@ -180,6 +224,7 @@ export const UPPER_ROOM = { common: 'bedroom', bar: 'bedroom', kitchen: 'storage
 export const UPPER_MAIN = {
   house: 'bedroom', cottage: 'bedroom', manor: 'bedroom', tavern: 'dormitory', inn: 'dormitory', shop: 'bedroom', smithy: 'bedroom',
   barn: 'storage', stable: 'storage', mill: 'storage', warehouse: 'storage', tower: 'storage', barracks: 'barracks',
+  apartment: 'quarters', office: 'office', factory: 'storage', garage: 'storage', bunker: 'quarters', station: 'quarters', starship: 'quarters',
 };
 
 // A one-room house gets a bit of everything.

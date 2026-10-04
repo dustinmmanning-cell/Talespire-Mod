@@ -115,6 +115,40 @@ const PROPS = [
   ['Tree, Festive', 'Trees', 'tree,christmas', 1.4, 3, 1.4],
 ];
 
+// A small stand-in for the "Cyberpunk and Sci-Fi" pack, using its group names.
+const SCIFI_TILES = [
+  ['concrete wall 1x1', 'Concrete Building', 'concrete,wall', 1, 2, 0.25],
+  ['concrete wall 2x1', 'Concrete Building', 'concrete,wall', 2, 2, 0.25],
+  ['concrete wall window 1x1', 'Concrete Building', 'concrete,wall,window', 1, 2, 0.25],
+  ['concrete floor 1x1', 'Concrete Building', 'concrete,floor', 1, 0.25, 1],
+  ['brick wall modern 1x1', 'Brick Building', 'brick,wall', 1, 2, 0.25],
+  ['brick wall modern window', 'Brick Building', 'brick,wall,window', 1, 2, 0.25],
+  ['city roof 1x1', 'Brick Building', 'roof', 1, 0.25, 1],
+  ['hull wall 1x1', 'Hull', 'metal,wall', 1, 2.2, 0.3],
+  ['hull wall window', 'Hull', 'metal,wall,window', 1, 2.2, 0.3],
+  ['hull floor 1x1', 'Hull', 'metal,floor', 1, 0.25, 1],
+  ['hull door 1x1', 'Hull', 'door', 1, 2.2, 0.3],
+  ['sliding door', 'Doors (Modern)', 'door', 1, 2, 0.2],
+  ['road asphalt 1x1', 'Street', 'road', 1, 0.25, 1],
+  ['sidewalk 1x1', 'Street', 'pavement', 1, 0.3, 1],
+  ['metal stairs', 'Outpost', 'stairs', 1, 1, 2],
+];
+const SCIFI_PROPS = [
+  ['sci fi chest 02', 'Chest (Modern)', 'chest', 0.9, 0.6, 0.5],
+  ['computer terminal', 'Facility', 'computer', 0.8, 1.4, 0.5],
+  ['office desk modern', 'Office', 'desk', 1.4, 0.8, 0.7],
+  ['office chair', 'Office', 'chair', 0.6, 1, 0.6],
+  ['modern table', 'Office', 'table', 1.2, 0.8, 0.8],
+  ['metal locker', 'Facility', 'locker', 0.6, 2, 0.5],
+  ['bunk bed metal', 'Facility', 'bed', 1, 1.6, 2],
+  ['street light', 'Street', 'streetlight', 0.4, 4, 0.4],
+  ['dumpster', 'Street', 'dumpster', 1.8, 1.3, 1],
+  ['generator', 'Industrial', 'machine', 1.5, 1.5, 1],
+  ['barrel metal', 'Industrial', 'barrel', 0.6, 0.9, 0.6],
+  ['crate metal', 'Industrial', 'crate', 0.8, 0.8, 0.8],
+  ['neon sign bar', 'Street', 'sign', 1, 0.6, 0.1],
+];
+
 export function demoCatalog() {
   const assets = [];
   for (const [name, group, tags, sx, sy, sz] of TILES) {
@@ -124,6 +158,15 @@ export function demoCatalog() {
     assets.push(makeAsset({
       id: fakeGuid(name), name, kind: 'prop', group, tags: tags.split(','),
       size: { x: sx, y: sy, z: sz }, center: { x: 0, y: sy / 2, z: 0 }, pack: 'synthetic',
+    }));
+  }
+  for (const [name, group, tags, sx, sy, sz] of SCIFI_TILES) {
+    assets.push(makeAsset({ id: fakeGuid(name), name, kind: 'tile', group, tags: tags.split(','), size: { x: sx, y: sy, z: sz }, pack: 'synthetic sci-fi' }));
+  }
+  for (const [name, group, tags, sx, sy, sz] of SCIFI_PROPS) {
+    assets.push(makeAsset({
+      id: fakeGuid(name), name, kind: 'prop', group, tags: tags.split(','),
+      size: { x: sx, y: sy, z: sz }, center: { x: 0, y: sy / 2, z: 0 }, pack: 'synthetic sci-fi',
     }));
   }
   return new Catalog(assets, { source: 'synthetic', synthetic: true, note: 'fake GUIDs: previews and tests only' });

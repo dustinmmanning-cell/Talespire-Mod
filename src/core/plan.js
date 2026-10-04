@@ -12,7 +12,7 @@
 // Rectangles are {x, y, w, h} in whole tiles. Points are [x, y] and may be
 // fractional; the centre of tile (3, 4) is [3.5, 4.5].
 
-import { SURFACES, WALL_MATERIALS, PROP_ROLES, STYLES, STYLE_PRESETS } from './kit.js';
+import { SURFACES, WALL_MATERIALS, PROP_ROLES, STYLES, STYLE_PRESETS, KIT_PREFIX, isKitMaterial } from './kit.js';
 
 export const PLAN_VERSION = 1;
 export const MAX_MAP_TILES = 240;
@@ -20,12 +20,13 @@ export const MAX_MAP_TILES = 240;
 export const STRUCTURE_KINDS = [
   'house', 'cottage', 'tavern', 'inn', 'shop', 'smithy', 'temple', 'chapel', 'tower', 'keep', 'castle', 'barracks',
   'barn', 'stable', 'warehouse', 'hall', 'library', 'guildhall', 'manor', 'mill', 'ruin', 'dungeon', 'cave', 'crypt',
-  'mine', 'room', 'other',
+  'mine', 'room', 'apartment', 'office', 'factory', 'garage', 'bunker', 'station', 'starship', 'other',
 ];
 export const ROOM_KINDS = [
   'common', 'bar', 'kitchen', 'bedroom', 'dormitory', 'storage', 'cellar', 'shop', 'workshop', 'forge', 'shrine',
   'chapel', 'library', 'study', 'throne', 'hall', 'dining', 'armory', 'barracks', 'treasury', 'prison', 'crypt',
-  'corridor', 'stable', 'lair', 'cavern', 'stage', 'empty', 'other',
+  'corridor', 'stable', 'lair', 'cavern', 'stage', 'office', 'lab', 'bridge', 'quarters', 'cargo_bay', 'engine_room',
+  'medbay', 'empty', 'other',
 ];
 export const ROOF_KINDS = ['pitched', 'flat', 'none'];
 export const FURNISH_LEVELS = ['none', 'sparse', 'normal', 'dense'];
@@ -193,6 +194,24 @@ const pick = (v, allowed, dflt) => {
 const text = (v, dflt = '') => (typeof v === 'string' ? v.slice(0, 2000) : dflt);
 const arr = (v) => (Array.isArray(v) ? v : []);
 
+const kitName = (v) => `${KIT_PREFIX}${v.slice(KIT_PREFIX.length).trim().slice(0, 60)}`;
+
+// The plan schema with this library's building kits added to the wall and
+// floor choices ("kit:Concrete Building"). kits: Catalog.buildingKits().
+export function planSchema(kits = []) {
+  if (!kits.length) return PLAN_SCHEMA;
+  const schema = JSON.parse(JSON.stringify(PLAN_SCHEMA));
+  const st = schema.properties.structures.items.properties;
+  st.wall.enum = [...st.wall.enum, ...kits.map((k) => `${KIT_PREFIX}${k.group}`)];
+  st.wall.description += '; or one of the library\'s own building kits, "kit:<group>"';
+  const floors = kits.filter((k) => k.floors > 0).map((k) => `${KIT_PREFIX}${k.group}`);
+  if (floors.length) {
+    st.floor.enum = [...st.floor.enum, ...floors];
+    st.floor.description += '; or a building kit\'s floor, "kit:<group>"';
+  }
+  return schema;
+}
+
 function cleanRooms(list, W, H) {
   return arr(list)
     .map((r) => {
@@ -306,8 +325,8 @@ export function normalizePlan(input, { maxTiles = MAX_MAP_TILES } = {}) {
         }
         return { label: text(f.label), parts: fparts, rooms: cleanRooms(f.rooms, W, H), doors: cleanDoors(f.doors, W, H) };
       }).filter(Boolean),
-      wall: pick(s.wall, [...WALL_MATERIALS, 'none'], preset.wall),
-      floor: pick(s.floor, SURFACES, preset.floor),
+      wall: isKitMaterial(s.wall) ? kitName(s.wall) : pick(s.wall, [...WALL_MATERIALS, 'none'], preset.wall),
+      floor: isKitMaterial(s.floor) ? kitName(s.floor) : pick(s.floor, SURFACES, preset.floor),
       storeys: clampInt(s.storeys, 1, MAX_STOREYS, 1),
       roof: pick(s.roof, ROOF_KINDS, dungeonish ? 'none' : preset.roof),
       windows: pick(s.windows, WINDOW_LEVELS, dungeonish ? 'none' : 'few'),

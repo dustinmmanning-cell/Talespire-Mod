@@ -270,6 +270,13 @@ assert.equal(await page2.textContent('#catalog-status'), `${assetCount + 2} asse
 assert.match(await page2.getAttribute('#catalog-status', 'title'), /from 2 pack\(s\): TaleSpire, Keyed Pack\nSkipped: Some Mod Pack/);
 assert.ok(!(await page2.textContent('#banner')).includes('Could not read'));
 await page2.click('[data-tab="kit"]');
+await page2.click('details.packs summary');
+const packLines = await page2.$$eval('#pack-list li', (els) => els.map((e) => e.textContent));
+assert.equal(packLines.length, 2, packLines.join(' | '));
+assert.match(packLines[0], /^TaleSpire \(mixed, \d+ sci-fi\): \d+ tiles, \d+ props$/);
+assert.match(await page2.textContent('#kit-groups'), /Sci-fi & modern: .*Hull/);
+const styleGroups = await page2.$$eval('#style optgroup', (els) => els.map((g) => `${g.label}: ${[...g.children].map((o) => o.value).join(',')}`));
+assert.deepEqual(styleGroups, ['Fantasy: medieval,castle,tavern,dungeon,cave,ruins,desert,swamp,winter,wilderness', 'Sci-fi & modern: modern,cyberpunk,scifi']);
 assert.match(await page2.textContent('#kit-skipped'), /couldn't describe 1 asset pack\(s\).*Some Mod Pack \(TaleSpire: internalError\)/);
 assert.equal(await page2.evaluate(() => window.__moreInfoCalls), 4, 'all packs at once, then one by one');
 await page2.click('#pack-diagnostics');

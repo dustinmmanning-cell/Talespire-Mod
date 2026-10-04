@@ -244,6 +244,8 @@ function packDiagnostics() {
     skippedPacks: state.skippedPacks || [],
     assets: state.catalog ? state.catalog.size : 0,
     boundsScale: state.catalog ? state.catalog.meta.boundsScale : null,
+    packSummary: state.catalog ? state.catalog.packSummary() : [],
+    buildingKits: state.catalog ? state.catalog.buildingKits().map((k) => `${k.group} (${k.genre}: ${k.walls}w ${k.windows}win ${k.doors}d ${k.floors}f)`) : [],
     packsWithAssets: state.catalog ? state.catalog.meta.packs : [],
     fragments: (state.packFragments || []).slice(0, 30).map((f) => (f && typeof f === 'object' ? { id: f.id, optionalName: f.optionalName, keys: Object.keys(f) } : f)),
     shapes: state.packInfos ? TF.describePackShapes(state.packInfos, { names: state.packNames || [] }) : null,
@@ -888,12 +890,39 @@ function kitRolesFor(style) {
   return kit.report();
 }
 
+// Style <option>s grouped by genre: Fantasy, then Sci-fi & modern.
+const STYLE_LABELS = { scifi: 'Sci-fi' };
+const GENRE_LABELS = { fantasy: 'Fantasy', scifi: 'Sci-fi & modern' };
+function fillStyleSelect(sel) {
+  for (const genre of ['fantasy', 'scifi']) {
+    const group = document.createElement('optgroup');
+    group.label = GENRE_LABELS[genre];
+    for (const s of TF.STYLES.filter((x) => TF.STYLE_PRESETS[x].genre === genre)) {
+      group.appendChild(new Option(STYLE_LABELS[s] || s[0].toUpperCase() + s.slice(1), s));
+    }
+    sel.appendChild(group);
+  }
+}
+
+function renderPacks() {
+  const list = $('pack-list');
+  list.replaceChildren();
+  for (const p of state.catalog.packSummary()) {
+    const li = document.createElement('li');
+    const genre = p.genre === 'mixed' ? `mixed, ${p.scifi.toLocaleString()} sci-fi` : GENRE_LABELS[p.genre];
+    li.textContent = `${p.pack} (${genre}): ${p.tiles.toLocaleString()} tiles, ${p.props.toLocaleString()} props`;
+    list.appendChild(li);
+  }
+  const kits = state.catalog.buildingKits();
+  const byGenre = (g) => kits.filter((k) => k.genre === g).map((k) => k.group).join(', ') || 'none';
+  $('kit-groups').textContent = `Building kits (library groups with their own walls, usable as a building's material): ${GENRE_LABELS.fantasy}: ${byGenre('fantasy')}. ${GENRE_LABELS.scifi}: ${byGenre('scifi')}.`;
+}
+
 function renderKit() {
   if (!state.catalog) return;
   const sel = $('kit-style');
-  if (!sel.options.length) {
-    for (const s of TF.STYLES) sel.add(new Option(s, s));
-  }
+  if (!sel.options.length) fillStyleSelect(sel);
+  renderPacks();
   const report = state.build && sel.dataset.followBuild !== 'no' ? state.build.kitReport : kitRolesFor(sel.value || 'medieval');
   const ul = $('kit-list');
   ul.replaceChildren();
@@ -1051,7 +1080,7 @@ function wireUi() {
     });
     ex.appendChild(b);
   }
-  for (const s of TF.STYLES) $('style').add(new Option(s[0].toUpperCase() + s.slice(1), s));
+  fillStyleSelect($('style'));
   $('size').addEventListener('change', () => show('custom-size', $('size').value === 'custom'));
   wireDrop('image-drop', 'image-file', 'image-pick', setReferenceImage);
   wireDrop('trace-drop', 'trace-file', 'trace-pick', setTraceImage);

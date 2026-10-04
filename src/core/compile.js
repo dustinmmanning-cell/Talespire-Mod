@@ -669,10 +669,10 @@ class Builder {
   }
 
   emitStructures() {
-    const door = this.kit.door();
     const flat = this.kit.flatRoof();
     for (const S of this.structures) {
       const def = S.def;
+      const door = this.kit.door(def.wall);
       const floors = this.upperFloorsFor(S);
       if (S.wall) {
         const all = [];

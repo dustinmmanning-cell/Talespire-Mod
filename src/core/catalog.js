@@ -235,6 +235,54 @@ function describeValue(v) {
   }
 }
 
+// ---- genre ------------------------------------------------------------------
+// TaleSpire ships a fantasy library and a "Cyberpunk and Sci-Fi" one. Every
+// asset gets a genre, so fantasy builds never pick a neon sign and sci-fi
+// builds prefer their own walls. In order:
+//   - an asset whose own name says sci-fi is sci-fi;
+//   - a pack named as sci-fi, or with most of its groups sci-fi-sounding
+//     (Concrete Building, Facility, Hull, Outpost, Doors (Modern)...), is
+//     sci-fi throughout, generic group names included;
+//   - otherwise each group decides by its name.
+const SCIFI_NAME = /\b(sci ?-?fi|cyber|cyberpunk|neon|robot|futuristic|spaceship|hologram|laser)\b/i;
+const SCIFI_GROUP = /\b(sci ?-?fi|cyber|modern|futur\w*|facility|hull|interstellar|outpost|industrial|construction|concrete|street|brick building|chamber|space|station|lab|office|apartment|neon)\b/i;
+const SCIFI_PACK = /sci ?-?fi|cyber|modern|futur|space/i;
+export const GENRES = ['fantasy', 'scifi'];
+
+export function assignGenres(assets) {
+  const groupsByPack = new Map();
+  for (const a of assets) {
+    if (!a.pack) continue;
+    if (!groupsByPack.has(a.pack)) groupsByPack.set(a.pack, new Set());
+    if (a.group) groupsByPack.get(a.pack).add(a.group);
+  }
+  const scifiPacks = new Set();
+  for (const [pack, set] of groupsByPack) {
+    const groups = [...set];
+    const sci = groups.filter((g) => SCIFI_GROUP.test(g)).length;
+    if (SCIFI_PACK.test(pack) || (groups.length > 0 && sci / groups.length >= 0.5)) scifiPacks.add(pack);
+  }
+  for (const a of assets) {
+    a.genre = SCIFI_NAME.test(a.name) || scifiPacks.has(a.pack) || SCIFI_GROUP.test(a.group || '') ? 'scifi' : 'fantasy';
+  }
+}
+
+// What a tile is for, judged by its name and collider shape (the same rules
+// the kit uses): 'walls', 'windows', 'doors', 'floors', 'stairs' or null.
+export function tileClass(a) {
+  if (a.kind !== 'tile') return null;
+  const n = a.name.toLowerCase();
+  const thin = Math.min(a.size.x, a.size.z) <= 0.6;
+  const long = Math.max(a.size.x, a.size.z);
+  const tall = a.size.y >= 1.2;
+  if (/stair/.test(n)) return 'stairs';
+  if (thin && tall && near(long, 1) && /door/.test(n)) return 'doors';
+  if (thin && tall && (near(long, 1) || near(long, 2)) && /window/.test(n)) return 'windows';
+  if (thin && tall && (near(long, 1) || near(long, 2)) && !/door|arch|corner|roof|half|broken|stair|window/.test(n)) return 'walls';
+  if (near(a.size.x, 1) && near(a.size.z, 1) && a.size.y <= 0.75 && !/wall|door|roof|stair|corner|window|pillar|column|post/.test(n)) return 'floors';
+  return null;
+}
+
 // ---- the catalog -----------------------------------------------------------
 
 export class Catalog {
@@ -244,6 +292,38 @@ export class Catalog {
     this.byIdMap = new Map();
     this.byNameMap = new Map();
     for (const a of assets) this.add(a);
+    assignGenres(this.assets);
+  }
+
+  // Library groups that can build a whole structure: wall pieces, and usually
+  // floors, windows and doors. A structure's wall or floor can name one as
+  // "kit:<group>". -> [{ group, genre, walls, windows, doors, floors, stairs }]
+  buildingKits() {
+    if (this._kits) return this._kits;
+    const by = new Map();
+    for (const a of this.assets) {
+      if (a.deprecated || !a.group) continue;
+      const cls = tileClass(a);
+      if (!cls) continue;
+      if (!by.has(a.group)) by.set(a.group, { group: a.group, genre: a.genre || 'fantasy', walls: 0, windows: 0, doors: 0, floors: 0, stairs: 0 });
+      by.get(a.group)[cls]++;
+    }
+    this._kits = [...by.values()].filter((k) => k.walls > 0).sort((a, b) => a.genre.localeCompare(b.genre) || a.group.localeCompare(b.group));
+    return this._kits;
+  }
+
+  // Tiles and props per pack, for the Kit tab and diagnostics.
+  // -> [{ pack, tiles, props, scifi (how many of them are sci-fi), genre: 'fantasy'|'scifi'|'mixed' }]
+  packSummary() {
+    const by = new Map();
+    for (const a of this.assets) {
+      const k = a.pack || '(unnamed pack)';
+      if (!by.has(k)) by.set(k, { pack: k, tiles: 0, props: 0, scifi: 0 });
+      const p = by.get(k);
+      p[a.kind === 'prop' ? 'props' : 'tiles']++;
+      if (a.genre === 'scifi') p.scifi++;
+    }
+    return [...by.values()].map((p) => ({ ...p, genre: p.scifi === 0 ? 'fantasy' : p.scifi === p.tiles + p.props ? 'scifi' : 'mixed' }));
   }
 
   add(asset) {
@@ -371,16 +451,18 @@ export class Catalog {
       const lname = normalizeName(a.name);
       if (ex.some((e) => lname.includes(e))) continue;
       const g = a.group || 'Other';
-      if (!groups.has(g)) groups.set(g, new Set());
-      groups.get(g).add(a.name);
+      const key = `${a.genre || 'fantasy'}\u0000${g}`;
+      if (!groups.has(key)) groups.set(key, { group: g, genre: a.genre || 'fantasy', names: new Set() });
+      groups.get(key).names.add(a.name);
     }
     const out = [];
     let total = 0;
-    for (const g of [...groups.keys()].sort()) {
-      const names = [...groups.get(g)].sort().slice(0, maxPerGroup);
+    for (const key of [...groups.keys()].sort()) {
+      const { group, genre, names: set } = groups.get(key);
+      const names = [...set].sort().slice(0, maxPerGroup);
       if (total + names.length > maxTotal) break;
       total += names.length;
-      out.push({ group: g, names });
+      out.push({ group, genre, names });
     }
     return out;
   }

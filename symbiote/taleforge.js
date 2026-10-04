@@ -542,6 +542,54 @@
       }
     }
 
+    // ---- genre ------------------------------------------------------------------
+    // TaleSpire ships a fantasy library and a "Cyberpunk and Sci-Fi" one. Every
+    // asset gets a genre, so fantasy builds never pick a neon sign and sci-fi
+    // builds prefer their own walls. In order:
+    //   - an asset whose own name says sci-fi is sci-fi;
+    //   - a pack named as sci-fi, or with most of its groups sci-fi-sounding
+    //     (Concrete Building, Facility, Hull, Outpost, Doors (Modern)...), is
+    //     sci-fi throughout, generic group names included;
+    //   - otherwise each group decides by its name.
+    const SCIFI_NAME = /\b(sci ?-?fi|cyber|cyberpunk|neon|robot|futuristic|spaceship|hologram|laser)\b/i;
+    const SCIFI_GROUP = /\b(sci ?-?fi|cyber|modern|futur\w*|facility|hull|interstellar|outpost|industrial|construction|concrete|street|brick building|chamber|space|station|lab|office|apartment|neon)\b/i;
+    const SCIFI_PACK = /sci ?-?fi|cyber|modern|futur|space/i;
+    const GENRES = ['fantasy', 'scifi'];
+
+    function  assignGenres(assets) {
+      const groupsByPack = new Map();
+      for (const a of assets) {
+        if (!a.pack) continue;
+        if (!groupsByPack.has(a.pack)) groupsByPack.set(a.pack, new Set());
+        if (a.group) groupsByPack.get(a.pack).add(a.group);
+      }
+      const scifiPacks = new Set();
+      for (const [pack, set] of groupsByPack) {
+        const groups = [...set];
+        const sci = groups.filter((g) => SCIFI_GROUP.test(g)).length;
+        if (SCIFI_PACK.test(pack) || (groups.length > 0 && sci / groups.length >= 0.5)) scifiPacks.add(pack);
+      }
+      for (const a of assets) {
+        a.genre = SCIFI_NAME.test(a.name) || scifiPacks.has(a.pack) || SCIFI_GROUP.test(a.group || '') ? 'scifi' : 'fantasy';
+      }
+    }
+
+    // What a tile is for, judged by its name and collider shape (the same rules
+    // the kit uses): 'walls', 'windows', 'doors', 'floors', 'stairs' or null.
+    function  tileClass(a) {
+      if (a.kind !== 'tile') return null;
+      const n = a.name.toLowerCase();
+      const thin = Math.min(a.size.x, a.size.z) <= 0.6;
+      const long = Math.max(a.size.x, a.size.z);
+      const tall = a.size.y >= 1.2;
+      if (/stair/.test(n)) return 'stairs';
+      if (thin && tall && near(long, 1) && /door/.test(n)) return 'doors';
+      if (thin && tall && (near(long, 1) || near(long, 2)) && /window/.test(n)) return 'windows';
+      if (thin && tall && (near(long, 1) || near(long, 2)) && !/door|arch|corner|roof|half|broken|stair|window/.test(n)) return 'walls';
+      if (near(a.size.x, 1) && near(a.size.z, 1) && a.size.y <= 0.75 && !/wall|door|roof|stair|corner|window|pillar|column|post/.test(n)) return 'floors';
+      return null;
+    }
+
     // ---- the catalog -----------------------------------------------------------
 
     class Catalog {
@@ -551,6 +599,38 @@
         this.byIdMap = new Map();
         this.byNameMap = new Map();
         for (const a of assets) this.add(a);
+        assignGenres(this.assets);
+      }
+
+      // Library groups that can build a whole structure: wall pieces, and usually
+      // floors, windows and doors. A structure's wall or floor can name one as
+      // "kit:<group>". -> [{ group, genre, walls, windows, doors, floors, stairs }]
+      buildingKits() {
+        if (this._kits) return this._kits;
+        const by = new Map();
+        for (const a of this.assets) {
+          if (a.deprecated || !a.group) continue;
+          const cls = tileClass(a);
+          if (!cls) continue;
+          if (!by.has(a.group)) by.set(a.group, { group: a.group, genre: a.genre || 'fantasy', walls: 0, windows: 0, doors: 0, floors: 0, stairs: 0 });
+          by.get(a.group)[cls]++;
+        }
+        this._kits = [...by.values()].filter((k) => k.walls > 0).sort((a, b) => a.genre.localeCompare(b.genre) || a.group.localeCompare(b.group));
+        return this._kits;
+      }
+
+      // Tiles and props per pack, for the Kit tab and diagnostics.
+      // -> [{ pack, tiles, props, scifi (how many of them are sci-fi), genre: 'fantasy'|'scifi'|'mixed' }]
+      packSummary() {
+        const by = new Map();
+        for (const a of this.assets) {
+          const k = a.pack || '(unnamed pack)';
+          if (!by.has(k)) by.set(k, { pack: k, tiles: 0, props: 0, scifi: 0 });
+          const p = by.get(k);
+          p[a.kind === 'prop' ? 'props' : 'tiles']++;
+          if (a.genre === 'scifi') p.scifi++;
+        }
+        return [...by.values()].map((p) => ({ ...p, genre: p.scifi === 0 ? 'fantasy' : p.scifi === p.tiles + p.props ? 'scifi' : 'mixed' }));
       }
 
       add(asset) {
@@ -678,16 +758,18 @@
           const lname = normalizeName(a.name);
           if (ex.some((e) => lname.includes(e))) continue;
           const g = a.group || 'Other';
-          if (!groups.has(g)) groups.set(g, new Set());
-          groups.get(g).add(a.name);
+          const key = `${a.genre || 'fantasy'}\u0000${g}`;
+          if (!groups.has(key)) groups.set(key, { group: g, genre: a.genre || 'fantasy', names: new Set() });
+          groups.get(key).names.add(a.name);
         }
         const out = [];
         let total = 0;
-        for (const g of [...groups.keys()].sort()) {
-          const names = [...groups.get(g)].sort().slice(0, maxPerGroup);
+        for (const key of [...groups.keys()].sort()) {
+          const { group, genre, names: set } = groups.get(key);
+          const names = [...set].sort().slice(0, maxPerGroup);
           if (total + names.length > maxTotal) break;
           total += names.length;
-          out.push({ group: g, names });
+          out.push({ group, genre, names });
         }
         return out;
       }
@@ -734,7 +816,7 @@
       return true;
     }
 
-    return { CATALOG_FORMAT, CATALOG_VERSION, normalizeName, makeAsset, assetsFromIndexJson, inferBoundsScale, assetsFromContentPacks, listOf, describePackShapes, readContentPacks, Catalog, matchesQuery };
+    return { CATALOG_FORMAT, CATALOG_VERSION, normalizeName, makeAsset, assetsFromIndexJson, inferBoundsScale, assetsFromContentPacks, listOf, describePackShapes, readContentPacks, GENRES, assignGenres, tileClass, Catalog, matchesQuery };
   })();
   // ---- geometry.js ----
   __m['geometry'] = (function () {
@@ -871,9 +953,19 @@
     const SURFACES = [
       'grass', 'dirt', 'mud', 'gravel', 'sand', 'snow', 'ice', 'cobblestone', 'flagstone', 'stone_floor',
       'wood_floor', 'plank', 'carpet', 'marble', 'tile', 'cave_floor', 'water', 'deep_water', 'swamp', 'lava', 'field',
+      'concrete', 'asphalt', 'metal_floor',
     ];
 
-    const WALL_MATERIALS = ['stone', 'castle', 'wood', 'plaster', 'brick', 'ruined', 'cave'];
+    const WALL_MATERIALS = ['stone', 'castle', 'wood', 'plaster', 'brick', 'ruined', 'cave', 'concrete', 'metal', 'industrial'];
+
+    // A structure's wall or floor may also be one of the library's own building
+    // sets, by group name: "kit:Concrete Building". See Catalog.buildingKits().
+    const KIT_PREFIX = 'kit:';
+    const isKitMaterial = (m) => typeof m === 'string' && m.startsWith(KIT_PREFIX);
+
+    // The sci-fi pack's building groups, as they appear in TaleSpire's library.
+    const SCIFI_CITY = ['Concrete Building', 'Brick Building', 'Construction', 'Street', 'Industrial'];
+    const SCIFI_TECH = ['Hull', 'Facility', 'Interstellar', 'Outpost', 'Chamber'];
 
     const PROP_ROLES = [
       'tree', 'conifer', 'dead_tree', 'bush', 'rock', 'boulder', 'flowers', 'tall_grass', 'log', 'stump', 'mushroom',
@@ -881,11 +973,13 @@
       'desk', 'counter', 'fireplace', 'oven', 'anvil', 'forge', 'weapon_rack', 'armor_stand', 'altar', 'statue', 'pillar',
       'fountain', 'well', 'cart', 'boat', 'market_stall', 'tent', 'campfire', 'brazier', 'torch', 'lantern', 'candle',
       'chandelier', 'banner', 'rug', 'bones', 'skeleton', 'coffin', 'cage', 'ladder', 'crystal', 'pottery', 'tankard',
-      'food', 'plant', 'tombstone', 'sign', 'hay', 'trough', 'throne', 'cauldron', 'pew', 'training_dummy', 'fence', 'instrument', 'other',
+      'food', 'plant', 'tombstone', 'sign', 'hay', 'trough', 'throne', 'cauldron', 'pew', 'training_dummy', 'fence', 'instrument',
+      'computer', 'locker', 'vending_machine', 'vehicle', 'streetlight', 'dumpster', 'machine', 'pipes', 'other',
     ];
 
-    // Anything that reads as the wrong genre in a fantasy build.
-    const OFF_THEME = ['festive', 'christmas', 'xmas', 'halloween', 'cyber', 'neon', 'robot', 'scifi', 'sci-fi', 'spaceship', 'futuristic'];
+    // Seasonal pieces never fit a generated build. (Sci-fi versus fantasy is
+    // handled by genre: see Kit.genreOk.)
+    const OFF_THEME = ['festive', 'christmas', 'xmas', 'halloween'];
 
     const SURFACE_BASE = { kind: 'tile', footprint: [1, 1], maxHeight: 1.6, excludeTerms: OFF_THEME };
 
@@ -910,6 +1004,9 @@
       deep_water: { q: [{ terms: ['deep', 'water'] }], fallback: 'water' },
       swamp: { q: [{ name: 'Swamp floor 1x1' }, { anyTerms: ['swamp', 'bog', 'marsh'] }], fallback: 'mud' },
       lava: { q: [{ anyTerms: ['lava', 'magma'] }], fallback: 'cave_floor' },
+      concrete: { q: [{ group: SCIFI_CITY, anyTerms: ['floor', 'ground', 'concrete', 'pavement', 'sidewalk', 'tile', 'slab'] }, { anyTerms: ['concrete', 'pavement', 'sidewalk', 'cement'] }], maxHeight: 0.75, fallback: 'stone_floor' },
+      asphalt: { q: [{ group: 'Street', anyTerms: ['road', 'asphalt', 'street'] }, { anyTerms: ['asphalt', 'road'], excludeTerms: ['sign', 'cone'] }, { group: 'Street' }], maxHeight: 0.75, fallback: 'concrete' },
+      metal_floor: { q: [{ group: SCIFI_TECH, anyTerms: ['floor', 'ground', 'plate', 'grate', 'grating', 'deck'] }, { anyTerms: ['metal floor', 'grate', 'grating', 'deck plate', 'steel floor'] }, { group: SCIFI_TECH }], maxHeight: 0.75, fallback: 'concrete' },
       field: { q: [{ anyTerms: ['tilled', 'farmland', 'crop', 'field'] }], big: [{ name: 'Tilled Earth' }, { anyTerms: ['tilled', 'farmland'] }], fallback: 'dirt' },
     };
 
@@ -938,9 +1035,24 @@
         fallback: 'wood',
       },
       brick: {
-        plain: [{ group: 'wall', anyTerms: ['brick'], excludeTerms: ['window'] }],
-        window: [{ group: 'wall', anyTerms: ['brick'], terms: ['window'] }],
+        plain: [{ group: 'wall', anyTerms: ['brick'], excludeTerms: ['window'] }, { group: 'Brick Building', excludeTerms: ['window'] }, { anyTerms: ['brick'], excludeTerms: ['window'] }],
+        window: [{ group: 'wall', anyTerms: ['brick'], terms: ['window'] }, { group: 'Brick Building', anyTerms: ['window'] }, { anyTerms: ['brick'], terms: ['window'] }],
         fallback: 'stone',
+      },
+      concrete: {
+        plain: [{ group: ['Concrete Building', 'Construction'], excludeTerms: ['window'] }, { anyTerms: ['concrete', 'cement'], excludeTerms: ['window'] }],
+        window: [{ group: ['Concrete Building', 'Construction'], anyTerms: ['window'] }, { anyTerms: ['concrete'], terms: ['window'] }],
+        fallback: 'brick',
+      },
+      metal: {
+        plain: [{ group: SCIFI_TECH, excludeTerms: ['window'] }, { anyTerms: ['metal', 'steel', 'hull', 'bulkhead', 'panel'], excludeTerms: ['window', 'fence', 'gate'] }],
+        window: [{ group: SCIFI_TECH, anyTerms: ['window'] }, { anyTerms: ['metal', 'steel', 'hull'], terms: ['window'] }],
+        fallback: 'concrete',
+      },
+      industrial: {
+        plain: [{ group: ['Industrial', 'Construction'], excludeTerms: ['window'] }, { anyTerms: ['industrial', 'corrugated', 'warehouse', 'factory'], excludeTerms: ['window'] }],
+        window: [{ group: ['Industrial', 'Construction'], anyTerms: ['window'] }],
+        fallback: 'metal',
       },
       ruined: {
         plain: [{ group: 'wall', anyTerms: ['ruin', 'ruins', 'ruined'], excludeTerms: ['window'] }],
@@ -955,10 +1067,10 @@
     };
 
     const DOOR_BASE = { kind: 'tile', thin: true, minHeight: 1.2, length: 1, excludeTerms: [...OFF_THEME, 'double', 'portcullis', 'gate', 'trap', 'frame'] };
-    const DOOR_Q = [{ name: 'Door -Peasant' }, { name: 'Door - Fancy' }, { group: 'door' }, { anyTerms: ['door'] }];
+    const DOOR_Q = [{ name: 'Door -Peasant' }, { name: 'Door - Fancy' }, { group: 'door' }, { group: 'Doors (Modern)' }, { anyTerms: ['door'] }];
     const GATE_Q = [{ name: 'Door - Portcullis' }, { name: 'Door - Metal Gate double' }, { name: 'Door - Portcullis double' }, { anyTerms: ['portcullis', 'gate'] }];
     const STAIR_Q = [{ name: 'Castle Ruins Stair' }, { name: 'md_stairs_01' }, { group: 'stairs' }, { group: 'stair' }, { anyTerms: ['stair', 'stairs'], excludeTerms: ['block', 'ladder'] }];
-    const FLAT_ROOF_Q = [{ name: 'Tavern Roof flat 01' }, { name: 'Thatched roof flat 01' }, { name: 'haunted roof 1x1 flat' }, { group: 'roof', anyTerms: ['flat'] }];
+    const FLAT_ROOF_Q = [{ name: 'Tavern Roof flat 01' }, { name: 'Thatched roof flat 01' }, { name: 'haunted roof 1x1 flat' }, { group: 'roof', anyTerms: ['flat'] }, { anyTerms: ['roof'], excludeTerms: ['corner', 'edge', 'side', 'inner', 'tip', 'ridge'] }];
     const CRENEL_Q = [{ name: 'Castle Ruins Crenellation - Small' }, { anyTerms: ['crenellation', 'battlement', 'merlon'] }];
     const POST_Q = [{ anyTerms: ['pillar', 'column', 'post', 'pole'], maxFootprint: 0.75, minHeight: 1.5, excludeTerms: [...OFF_THEME, 'sign', 'lamp', 'lantern', 'fence', 'broken'] }];
 
@@ -974,7 +1086,7 @@
     const ROOF_CORNER_ROT = { 'xMin,zMin': 12, 'xMax,zMin': 6, 'xMin,zMax': 18, 'xMax,zMax': 0 };
 
     const PROP_DEFS = {
-      tree: { pin: ['Tree 01'], any: ['tree'], ex: ['dead', 'stump', 'stackable', 'top', 'middle', 'fallen', 'log', 'branch', 'trunk', 'root', 'house'], max: 4.5 },
+      tree: { pin: ['Tree 01'], any: ['tree'], ex: ['dead', 'stump', 'stackable', 'top', 'middle', 'fallen', 'log', 'branch', 'trunk', 'root', 'house', 'street'], max: 4.5 },
       conifer: { any: ['pine', 'spruce', 'fir', 'conifer'], ex: ['stackable', 'stump', 'top', 'middle', 'cone', 'log', 'needle'], max: 4.5 },
       dead_tree: { pin: ['Dead Tree 03', 'Dead Tree 02'], all: ['dead', 'tree'], max: 4.5 },
       bush: { any: ['bush', 'shrub', 'hedge'], ex: ['wall'], max: 3 },
@@ -1042,20 +1154,32 @@
       training_dummy: { any: ['dummy', 'target'], max: 2 },
       instrument: { any: ['lute', 'harp', 'lyre', 'drum', 'drums', 'fiddle', 'violin', 'flute', 'mandolin', 'bagpipe', 'bagpipes', 'piano', 'organ', 'instrument'], ex: ['eardrum'], max: 2.5 },
       fence: { pin: ['Harbor Fence 02', 'Desert fence low'], any: ['fence'], ex: ['gate'], max: 3 },
+      computer: { any: ['computer', 'terminal', 'console', 'monitor', 'screen', 'laptop', 'keyboard', 'server'], ex: ['screenshot'], max: 2.5 },
+      locker: { any: ['locker', 'lockers'], max: 2 },
+      vending_machine: { any: ['vending', 'soda machine', 'arcade'], max: 2 },
+      vehicle: { any: ['car', 'van', 'truck', 'vehicle', 'motorcycle', 'motorbike', 'scooter', 'hovercar', 'bike'], ex: ['cart', 'carpet', 'card', 'carrot', 'scar', 'carved', 'caravan'], max: 6 },
+      streetlight: { any: ['streetlight', 'street light', 'lamp post', 'lamppost', 'light pole', 'street lamp'], max: 1.5 },
+      dumpster: { any: ['dumpster', 'trash', 'garbage', 'rubbish', 'bin'], ex: ['cabinet', 'robin', 'binoc'], max: 3 },
+      machine: { any: ['machine', 'generator', 'engine', 'pump', 'reactor', 'turbine', 'machinery'], max: 4 },
+      pipes: { any: ['pipe', 'pipes', 'duct', 'vent'], ex: ['pipeweed', 'bagpipe'], max: 4 },
       other: { any: [], max: 6 },
     };
 
+    // genre: which half of the library a style draws on (see Kit.genreOk).
     const STYLE_PRESETS = {
-      medieval: { ground: 'grass', path: 'cobblestone', wall: 'wood', floor: 'wood_floor', roof: 'pitched' },
-      castle: { ground: 'grass', path: 'flagstone', wall: 'castle', floor: 'stone_floor', roof: 'flat' },
-      tavern: { ground: 'none', path: 'wood_floor', wall: 'wood', floor: 'wood_floor', roof: 'none' },
-      dungeon: { ground: 'none', path: 'stone_floor', wall: 'stone', floor: 'stone_floor', roof: 'none' },
-      cave: { ground: 'none', path: 'cave_floor', wall: 'cave', floor: 'cave_floor', roof: 'none' },
-      ruins: { ground: 'grass', path: 'flagstone', wall: 'ruined', floor: 'flagstone', roof: 'none' },
-      desert: { ground: 'sand', path: 'gravel', wall: 'plaster', floor: 'tile', roof: 'flat' },
-      swamp: { ground: 'swamp', path: 'plank', wall: 'wood', floor: 'plank', roof: 'pitched' },
-      winter: { ground: 'snow', path: 'cobblestone', wall: 'stone', floor: 'wood_floor', roof: 'pitched' },
-      wilderness: { ground: 'grass', path: 'dirt', wall: 'wood', floor: 'wood_floor', roof: 'pitched' },
+      medieval: { genre: 'fantasy', ground: 'grass', path: 'cobblestone', wall: 'wood', floor: 'wood_floor', roof: 'pitched' },
+      castle: { genre: 'fantasy', ground: 'grass', path: 'flagstone', wall: 'castle', floor: 'stone_floor', roof: 'flat' },
+      tavern: { genre: 'fantasy', ground: 'none', path: 'wood_floor', wall: 'wood', floor: 'wood_floor', roof: 'none' },
+      dungeon: { genre: 'fantasy', ground: 'none', path: 'stone_floor', wall: 'stone', floor: 'stone_floor', roof: 'none' },
+      cave: { genre: 'fantasy', ground: 'none', path: 'cave_floor', wall: 'cave', floor: 'cave_floor', roof: 'none' },
+      ruins: { genre: 'fantasy', ground: 'grass', path: 'flagstone', wall: 'ruined', floor: 'flagstone', roof: 'none' },
+      desert: { genre: 'fantasy', ground: 'sand', path: 'gravel', wall: 'plaster', floor: 'tile', roof: 'flat' },
+      swamp: { genre: 'fantasy', ground: 'swamp', path: 'plank', wall: 'wood', floor: 'plank', roof: 'pitched' },
+      winter: { genre: 'fantasy', ground: 'snow', path: 'cobblestone', wall: 'stone', floor: 'wood_floor', roof: 'pitched' },
+      wilderness: { genre: 'fantasy', ground: 'grass', path: 'dirt', wall: 'wood', floor: 'wood_floor', roof: 'pitched' },
+      modern: { genre: 'scifi', ground: 'concrete', path: 'asphalt', wall: 'brick', floor: 'concrete', roof: 'flat' },
+      cyberpunk: { genre: 'scifi', ground: 'asphalt', path: 'asphalt', wall: 'concrete', floor: 'concrete', roof: 'flat' },
+      scifi: { genre: 'scifi', ground: 'none', path: 'metal_floor', wall: 'metal', floor: 'metal_floor', roof: 'flat' },
     };
     const STYLES = Object.keys(STYLE_PRESETS);
 
@@ -1067,6 +1191,7 @@
         this.catalog = catalog;
         this.style = STYLE_PRESETS[style] ? style : 'medieval';
         this.preset = STYLE_PRESETS[this.style];
+        this.genre = this.preset.genre || 'fantasy';
         this.overrides = {};
         for (const [k, v] of Object.entries(overrides || {})) this.overrides[k.toLowerCase()] = v;
         this.cache = new Map();
@@ -1092,18 +1217,29 @@
         return a;
       }
 
-      first(role, queries, base) {
+      // Fantasy builds never use sci-fi assets. Sci-fi builds prefer their own and
+      // fall back to anything (grass, trees and barrels are much the same).
+      genreOk(a, strict) {
+        if (this.genre === 'fantasy') return a.genre !== 'scifi';
+        return !strict || a.genre === this.genre;
+      }
+
+      // anyGenre: for an explicit library kit, whose group already decides.
+      first(role, queries, base, { anyGenre = false } = {}) {
         const o = this.override(role, base);
         if (o) {
           this.record(role, o, 'override');
           return o;
         }
-        for (const q of queries) {
-          const merged = mergeQuery(base, q);
-          const hits = this.catalog.find(merged);
-          if (hits.length) {
-            this.record(role, hits[0], q.name ? 'pinned' : 'search');
-            return hits[0];
+        const passes = anyGenre ? [null] : this.genre === 'fantasy' ? [true] : [true, false];
+        for (const strict of passes) {
+          for (const q of queries) {
+            const merged = mergeQuery(base, q);
+            const hits = this.catalog.find(merged).filter((a) => strict === null || this.genreOk(a, strict));
+            if (hits.length) {
+              this.record(role, hits[0], q.name ? 'pinned' : 'search');
+              return hits[0];
+            }
           }
         }
         this.record(role, null, 'missing');
@@ -1114,13 +1250,20 @@
       // fallbacks) resolves.
       surface(material) {
         return this.memo(`surface:${material}`, () => {
+          if (isKitMaterial(material)) {
+            const group = material.slice(KIT_PREFIX.length);
+            const base = this.first(`surface:${material}`, [{ group, excludeTerms: ['wall', 'door', 'roof', 'stair', 'corner', 'window', 'pillar', 'column', 'post'] }], { ...SURFACE_BASE, maxHeight: 0.75 }, { anyGenre: true });
+            if (base) return { material, base, big: this.bigVariants(base), requested: material };
+            const fb = this.surface(this.preset.floor);
+            return fb ? { ...fb, requested: material } : null;
+          }
           const seen = new Set();
           let m = material;
           while (m && !seen.has(m)) {
             seen.add(m);
             const def = SURFACE_DEFS[m];
             if (!def) break;
-            const base = this.first(`surface:${m}`, def.q, SURFACE_BASE);
+            const base = this.first(`surface:${m}`, def.q, def.maxHeight ? { ...SURFACE_BASE, maxHeight: def.maxHeight } : SURFACE_BASE);
             if (base) {
               return { material: m, base, big: this.bigVariants(base), requested: material };
             }
@@ -1152,6 +1295,26 @@
       // -> { material, plain1, plain2, window, height, thickness } or null.
       wall(material) {
         return this.memo(`wall:${material}`, () => {
+          if (isKitMaterial(material)) {
+            const group = material.slice(KIT_PREFIX.length);
+            const opt = { anyGenre: true };
+            const plain1 = this.first(`wall:${material}`, [{ group, excludeTerms: ['window'] }], { ...WALL_BASE, length: 1 }, opt);
+            if (!plain1) {
+              const fb = this.wall(this.preset.wall);
+              return fb ? { ...fb, requested: material } : null;
+            }
+            const h = { maxHeight: plain1.size.y + 0.3, minHeight: plain1.size.y - 0.3 };
+            return {
+              material,
+              requested: material,
+              plain1,
+              plain2: this.first(`wall:${material}:long`, [{ group, excludeTerms: ['window'] }], { ...WALL_BASE, length: 2, ...h }, opt),
+              window: this.first(`wall:${material}:window`, [{ group, anyTerms: ['window'] }], { ...WINDOW_BASE, length: 1, ...h }, opt),
+              door: this.first(`door:${material}`, [{ group, anyTerms: ['door'] }], { ...DOOR_BASE, ...h }, opt),
+              height: plain1.size.y,
+              thickness: Math.min(plain1.size.x, plain1.size.z),
+            };
+          }
           const seen = new Set();
           let m = material;
           while (m && !seen.has(m)) {
@@ -1178,7 +1341,12 @@
         });
       }
 
-      door() {
+      // A library kit's own door when it has one; otherwise the style's door.
+      door(material) {
+        if (material) {
+          const w = this.wall(material);
+          if (w && w.door) return w.door;
+        }
         return this.memo('door', () => this.first('door', DOOR_Q, DOOR_BASE));
       }
 
@@ -1251,17 +1419,24 @@
           const def = PROP_DEFS[role] || PROP_DEFS.other;
           const out = [];
           const push = (a) => {
-            if (a && !out.includes(a) && !a.deprecated && Math.max(a.size.x, a.size.z) <= (def.max || 6) + 1e-6) out.push(a);
+            if (a && !out.includes(a) && !a.deprecated && this.genreOk(a, false) && Math.max(a.size.x, a.size.z) <= (def.max || 6) + 1e-6) out.push(a);
           };
           const o = this.override(`prop:${role}`);
           if (o) out.push(o);
+          let exact = null;
           if (hint) {
-            const exact = this.catalog.byName(hint, 'prop') || this.catalog.byName(hint, 'tile');
+            exact = this.catalog.byName(hint, 'prop') || this.catalog.byName(hint, 'tile');
             if (exact) out.push(exact);
             else for (const a of this.catalog.fuzzy(hint, { kind: 'prop', limit: 3, exclude: OFF_THEME })) push(a);
           }
           for (const name of def.pin || []) push(this.catalog.byName(name, 'prop') || this.catalog.byName(name, 'tile'));
           const terms = def.any || [];
+          // the role's word as a whole word of the name or a tag ("street" is not a tree)
+          const strong = (a) => {
+            const lname = a.name.toLowerCase();
+            const words = new Set([...lname.split(/[^a-z0-9]+/), ...a.tags]);
+            return [...terms, ...(def.all || [])].some((t) => words.has(t) || words.has(`${t}s`) || (t.includes(' ') && lname.includes(t)));
+          };
           if (terms.length || def.all) {
             for (const kind of ['prop', 'tile']) {
               if (kind === 'tile' && out.length) break;
@@ -1273,9 +1448,18 @@
                 for (const t of [...terms, ...(def.all || [])]) if (words.includes(t) || words.includes(`${t}s`)) s += 2;
                 return s - a.name.length / 100;
               };
-              hits.sort((p, q) => score(q) - score(p));
+              // ...and, for sci-fi builds, sci-fi assets that name the role first
+              const own = (a) => (this.genre !== 'fantasy' && a.genre === this.genre && strong(a) ? 10 : 0);
+              hits.sort((p, q) => own(q) + score(q) - own(p) - score(p));
               for (const a of hits.slice(0, 8)) push(a);
             }
+          }
+          if (this.genre !== 'fantasy') {
+            // own-genre candidates first, after the override and the AI's exact pick
+            const head = out.filter((a) => a === o || a === exact);
+            const rest = out.filter((a) => a !== o && a !== exact);
+            const mine = (a) => a.genre === this.genre && strong(a);
+            out.splice(0, out.length, ...head, ...rest.filter(mine), ...rest.filter((a) => !mine(a)));
           }
           this.record(`prop:${role}`, out[0] || null, out[0] ? (o ? 'override' : hint && out[0].name === hint ? 'ai' : 'search') : 'missing');
           return out;
@@ -1322,7 +1506,7 @@
     }
 
 
-    return { SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, ROOF_EDGE_ROT, ROOF_CORNER_ROT, STYLE_PRESETS, STYLES, Kit, isSurface, describeKitReport };
+    return { SURFACES, WALL_MATERIALS, KIT_PREFIX, isKitMaterial, PROP_ROLES, ROOF_KITS, ROOF_EDGE_ROT, ROOF_CORNER_ROT, STYLE_PRESETS, STYLES, Kit, isSurface, describeKitReport };
   })();
   // ---- plan.js ----
   __m['plan'] = (function () {
@@ -1340,19 +1524,20 @@
     // Rectangles are {x, y, w, h} in whole tiles. Points are [x, y] and may be
     // fractional; the centre of tile (3, 4) is [3.5, 4.5].
 
-    const { SURFACES, WALL_MATERIALS, PROP_ROLES, STYLES, STYLE_PRESETS } = __m['kit'];
+    const { SURFACES, WALL_MATERIALS, PROP_ROLES, STYLES, STYLE_PRESETS, KIT_PREFIX, isKitMaterial } = __m['kit'];
     const PLAN_VERSION = 1;
     const MAX_MAP_TILES = 240;
 
     const STRUCTURE_KINDS = [
       'house', 'cottage', 'tavern', 'inn', 'shop', 'smithy', 'temple', 'chapel', 'tower', 'keep', 'castle', 'barracks',
       'barn', 'stable', 'warehouse', 'hall', 'library', 'guildhall', 'manor', 'mill', 'ruin', 'dungeon', 'cave', 'crypt',
-      'mine', 'room', 'other',
+      'mine', 'room', 'apartment', 'office', 'factory', 'garage', 'bunker', 'station', 'starship', 'other',
     ];
     const ROOM_KINDS = [
       'common', 'bar', 'kitchen', 'bedroom', 'dormitory', 'storage', 'cellar', 'shop', 'workshop', 'forge', 'shrine',
       'chapel', 'library', 'study', 'throne', 'hall', 'dining', 'armory', 'barracks', 'treasury', 'prison', 'crypt',
-      'corridor', 'stable', 'lair', 'cavern', 'stage', 'empty', 'other',
+      'corridor', 'stable', 'lair', 'cavern', 'stage', 'office', 'lab', 'bridge', 'quarters', 'cargo_bay', 'engine_room',
+      'medbay', 'empty', 'other',
     ];
     const ROOF_KINDS = ['pitched', 'flat', 'none'];
     const FURNISH_LEVELS = ['none', 'sparse', 'normal', 'dense'];
@@ -1520,6 +1705,24 @@
     const text = (v, dflt = '') => (typeof v === 'string' ? v.slice(0, 2000) : dflt);
     const arr = (v) => (Array.isArray(v) ? v : []);
 
+    const kitName = (v) => `${KIT_PREFIX}${v.slice(KIT_PREFIX.length).trim().slice(0, 60)}`;
+
+    // The plan schema with this library's building kits added to the wall and
+    // floor choices ("kit:Concrete Building"). kits: Catalog.buildingKits().
+    function  planSchema(kits = []) {
+      if (!kits.length) return PLAN_SCHEMA;
+      const schema = JSON.parse(JSON.stringify(PLAN_SCHEMA));
+      const st = schema.properties.structures.items.properties;
+      st.wall.enum = [...st.wall.enum, ...kits.map((k) => `${KIT_PREFIX}${k.group}`)];
+      st.wall.description += '; or one of the library\'s own building kits, "kit:<group>"';
+      const floors = kits.filter((k) => k.floors > 0).map((k) => `${KIT_PREFIX}${k.group}`);
+      if (floors.length) {
+        st.floor.enum = [...st.floor.enum, ...floors];
+        st.floor.description += '; or a building kit\'s floor, "kit:<group>"';
+      }
+      return schema;
+    }
+
     function cleanRooms(list, W, H) {
       return arr(list)
         .map((r) => {
@@ -1633,8 +1836,8 @@
             }
             return { label: text(f.label), parts: fparts, rooms: cleanRooms(f.rooms, W, H), doors: cleanDoors(f.doors, W, H) };
           }).filter(Boolean),
-          wall: pick(s.wall, [...WALL_MATERIALS, 'none'], preset.wall),
-          floor: pick(s.floor, SURFACES, preset.floor),
+          wall: isKitMaterial(s.wall) ? kitName(s.wall) : pick(s.wall, [...WALL_MATERIALS, 'none'], preset.wall),
+          floor: isKitMaterial(s.floor) ? kitName(s.floor) : pick(s.floor, SURFACES, preset.floor),
           storeys: clampInt(s.storeys, 1, MAX_STOREYS, 1),
           roof: pick(s.roof, ROOF_KINDS, dungeonish ? 'none' : preset.roof),
           windows: pick(s.windows, WINDOW_LEVELS, dungeonish ? 'none' : 'few'),
@@ -1766,7 +1969,7 @@
       return merged.size;
     }
 
-    return { PLAN_VERSION, MAX_MAP_TILES, STRUCTURE_KINDS, ROOM_KINDS, ROOF_KINDS, FURNISH_LEVELS, WINDOW_LEVELS, SIDES, BARRIER_KINDS, MAX_STOREYS, PLAN_SCHEMA, normalizePlan, planStats, mergeNestedStructures };
+    return { PLAN_VERSION, MAX_MAP_TILES, STRUCTURE_KINDS, ROOM_KINDS, ROOF_KINDS, FURNISH_LEVELS, WINDOW_LEVELS, SIDES, BARRIER_KINDS, MAX_STOREYS, PLAN_SCHEMA, planSchema, normalizePlan, planStats, mergeNestedStructures };
   })();
   // ---- furnish.js ----
   __m['furnish'] = (function () {
@@ -1922,6 +2125,49 @@
         { role: 'mushroom', at: 'center', per: 12, max: 6 },
         { role: 'crystal', at: 'wall', per: 16, max: 3 },
       ],
+      office: [
+        { role: 'desk', at: 'wall', per: 8, min: 1, max: 4 },
+        { role: 'chair', at: 'around', per: 1, max: 1 },
+        { role: 'computer', at: 'wall', per: 10, max: 3 },
+        { role: 'cabinet', at: 'wall', max: 2 },
+        { role: 'plant', at: 'wall', max: 1 },
+      ],
+      lab: [
+        { role: 'table', at: 'center', per: 10, min: 1, max: 3 },
+        { role: 'computer', at: 'wall', per: 8, min: 1, max: 4 },
+        { role: 'machine', at: 'wall', max: 2 },
+        { role: 'cabinet', at: 'wall', max: 2 },
+        { role: 'crate', at: 'wall', max: 2 },
+      ],
+      bridge: [
+        { role: 'computer', at: 'wall', per: 4, min: 2, max: 8 },
+        { role: 'chair', at: 'center', per: 8, min: 1, max: 4 },
+        { role: 'locker', at: 'wall', max: 1 },
+      ],
+      quarters: [
+        { role: 'bed', at: 'wall', per: 8, min: 1, max: 4 },
+        { role: 'locker', at: 'wall', per: 8, min: 1, max: 4 },
+        { role: 'table', at: 'center', max: 1 },
+        { role: 'chair', at: 'around', max: 2 },
+      ],
+      cargo_bay: [
+        { role: 'crate', at: 'wall', per: 4, min: 2, max: 14 },
+        { role: 'barrel', at: 'wall', per: 8, max: 6 },
+        { role: 'machine', at: 'wall', max: 1 },
+        { role: 'locker', at: 'wall', max: 2 },
+      ],
+      engine_room: [
+        { role: 'machine', at: 'wall', per: 8, min: 1, max: 4 },
+        { role: 'pipes', at: 'wall', per: 6, max: 6 },
+        { role: 'computer', at: 'wall', max: 2 },
+        { role: 'crate', at: 'wall', max: 2 },
+      ],
+      medbay: [
+        { role: 'bed', at: 'wall', per: 6, min: 1, max: 4 },
+        { role: 'cabinet', at: 'wall', max: 2 },
+        { role: 'computer', at: 'wall', max: 2 },
+        { role: 'table', at: 'center', max: 1 },
+      ],
       stage: [
         { role: 'rug', at: 'center', max: 1 },
         { role: 'instrument', at: 'wall', min: 1, max: 2 },
@@ -1943,6 +2189,7 @@
       tower: 'storage', keep: 'hall', castle: 'hall', barracks: 'barracks', barn: 'stable', stable: 'stable',
       warehouse: 'storage', hall: 'hall', library: 'library', guildhall: 'hall', mill: 'storage',
       ruin: 'lair', dungeon: 'lair', cave: 'cavern', crypt: 'crypt', mine: 'cavern', room: 'other', other: 'other',
+      apartment: 'quarters', office: 'office', factory: 'engine_room', garage: 'workshop', bunker: 'storage', station: 'cargo_bay', starship: 'bridge',
     };
 
     // Upstairs, when a plan only gives a storey count: ground-floor room kinds that
@@ -1952,6 +2199,7 @@
     const UPPER_MAIN = {
       house: 'bedroom', cottage: 'bedroom', manor: 'bedroom', tavern: 'dormitory', inn: 'dormitory', shop: 'bedroom', smithy: 'bedroom',
       barn: 'storage', stable: 'storage', mill: 'storage', warehouse: 'storage', tower: 'storage', barracks: 'barracks',
+      apartment: 'quarters', office: 'office', factory: 'storage', garage: 'storage', bunker: 'quarters', station: 'quarters', starship: 'quarters',
     };
 
     // A one-room house gets a bit of everything.
@@ -2807,10 +3055,10 @@
       }
 
       emitStructures() {
-        const door = this.kit.door();
         const flat = this.kit.flatRoof();
         for (const S of this.structures) {
           const def = S.def;
+          const door = this.kit.door(def.wall);
           const floors = this.upperFloorsFor(S);
           if (S.wall) {
             const all = [];
@@ -4979,8 +5227,8 @@
 
     const { callModel } = __m['ai'];
     const { parseJsonText } = __m['http'];
-    const { PLAN_SCHEMA, normalizePlan, MAX_MAP_TILES } = __m['plan'];
-    const { STYLES, SURFACES, WALL_MATERIALS } = __m['kit'];
+    const { PLAN_SCHEMA, normalizePlan, planSchema, MAX_MAP_TILES } = __m['plan'];
+    const { STYLES, SURFACES, WALL_MATERIALS, STYLE_PRESETS } = __m['kit'];
     const { TRACE_MEANINGS } = __m['trace'];
     const SIZE_PRESETS = {
       auto: null,
@@ -4990,6 +5238,10 @@
       village: [64, 48],
       town: [110, 90],
     };
+
+    const GENRE_LABEL = { fantasy: 'Fantasy', scifi: 'Sci-fi and modern' };
+    const FANTASY_STYLES = STYLES.filter((st) => STYLE_PRESETS[st].genre === 'fantasy');
+    const SCIFI_STYLES = STYLES.filter((st) => STYLE_PRESETS[st].genre === 'scifi');
 
     const SYSTEM_PROMPT = `You are TaleForge, a master cartographer who designs battle maps, buildings and settlements for TaleSpire, a 3D virtual tabletop. You do not place 3D assets yourself: you draw a plan on a tile grid, and a deterministic builder turns it into TaleSpire tiles and props from the GM's own asset library.
 
@@ -5021,14 +5273,29 @@
     - Interiors: rooms 3x3 or larger; dungeon corridors 1-2 wide.
     - Every floor tile, wall segment and prop is one asset. Prefer fewer, richer features over blanket clutter. Maps up to about 120x120 are fine.
     - Match materials to the theme: wood walls and wood_floor for cottages and inns, stone or castle walls for keeps and temples, cave walls and cave_floor for caverns, carpet for manors, plank for docks.
+    - The library has a fantasy half and a sci-fi and modern half. Fantasy styles (${FANTASY_STYLES.join(', ')}) build only from the fantasy half. Styles ${SCIFI_STYLES.join(', ')} build from the sci-fi half: brick, concrete, metal and industrial walls, concrete, asphalt and metal_floor surfaces, and the sci-fi building kits. Pick the style that matches the setting; for a sci-fi, cyberpunk or modern request never use a fantasy style. Sci-fi buildings use kinds like apartment, office, factory, garage, bunker, station and starship, and rooms like office, lab, bridge, quarters, cargo_bay, engine_room and medbay.
     - Write a title, a summary (a line of read-aloud flavour, then the layout in one or two sentences) and notes with GM tips: hidden doors, encounters, hazards, where the party enters.`;
+
+    // Building kits are library groups with their own walls (and usually floors,
+    // windows, doors): Catalog.buildingKits().
+    function kitSection(catalog) {
+      const kits = catalog.buildingKits ? catalog.buildingKits() : [];
+      if (!kits.length) return '';
+      const has = (k) => ['windows', 'doors', 'floors', 'stairs'].filter((x) => k[x] > 0).join(', ');
+      const lines = [];
+      for (const genre of ['fantasy', 'scifi']) {
+        const list = kits.filter((k) => k.genre === genre);
+        if (list.length) lines.push(`${GENRE_LABEL[genre]}: ${list.map((k) => `${k.group} (walls${has(k) ? `, ${has(k)}` : ''})`).join('; ')}`);
+      }
+      return `\n\n# Building kits in this GM's library\nBesides the generic materials, a structure's wall can be one of these sets from the library, written "kit:<name>" (e.g. "kit:${kits[kits.length - 1].group}"); its floor can be "kit:<name>" too when the set has floors. A kit uses its own windows and doors where it has them.\n${lines.join('\n')}`;
+    }
 
     function assetSection(catalog) {
       if (!catalog || !catalog.size || (catalog.meta && catalog.meta.synthetic)) return '';
-      const groups = catalog.propNamesByGroup({ maxPerGroup: 50, maxTotal: 1400, exclude: ['festive', 'christmas', 'cyber', 'neon', 'robot', 'scifi'] });
+      const groups = catalog.propNamesByGroup({ maxPerGroup: 50, maxTotal: 2000, exclude: ['festive', 'christmas'] });
       if (!groups.length) return '';
-      const lines = groups.map((g) => `${g.group}: ${g.names.join('; ')}`);
-      return `\n\n# Props in this GM's library\nWhen you want a specific object, put its exact name from this list in "asset"; otherwise leave "asset" empty and choose the closest "role".\n${lines.join('\n')}`;
+      const lines = groups.map((g) => `${g.genre === 'scifi' ? '[sci-fi] ' : ''}${g.group}: ${g.names.join('; ')}`);
+      return `${kitSection(catalog)}\n\n# Props in this GM's library\nWhen you want a specific object, put its exact name from this list in "asset"; otherwise leave "asset" empty and choose the closest "role". Groups marked [sci-fi] are from the sci-fi and modern library: use them for sci-fi, cyberpunk and modern builds, and not in fantasy ones unless asked.\n${lines.join('\n')}`;
     }
 
     function  systemPrompt(catalog) {
@@ -5093,7 +5360,7 @@
         schemaName: 'build_plan',
         system,
         messages,
-        schema: PLAN_SCHEMA,
+        schema: opts.catalog && opts.catalog.buildingKits && !(opts.catalog.meta && opts.catalog.meta.synthetic) ? planSchema(opts.catalog.buildingKits()) : PLAN_SCHEMA,
         onProgress: opts.onProgress,
         signal: opts.signal,
         fetchImpl: opts.fetchImpl,
@@ -5548,6 +5815,40 @@
       ['Tree, Festive', 'Trees', 'tree,christmas', 1.4, 3, 1.4],
     ];
 
+    // A small stand-in for the "Cyberpunk and Sci-Fi" pack, using its group names.
+    const SCIFI_TILES = [
+      ['concrete wall 1x1', 'Concrete Building', 'concrete,wall', 1, 2, 0.25],
+      ['concrete wall 2x1', 'Concrete Building', 'concrete,wall', 2, 2, 0.25],
+      ['concrete wall window 1x1', 'Concrete Building', 'concrete,wall,window', 1, 2, 0.25],
+      ['concrete floor 1x1', 'Concrete Building', 'concrete,floor', 1, 0.25, 1],
+      ['brick wall modern 1x1', 'Brick Building', 'brick,wall', 1, 2, 0.25],
+      ['brick wall modern window', 'Brick Building', 'brick,wall,window', 1, 2, 0.25],
+      ['city roof 1x1', 'Brick Building', 'roof', 1, 0.25, 1],
+      ['hull wall 1x1', 'Hull', 'metal,wall', 1, 2.2, 0.3],
+      ['hull wall window', 'Hull', 'metal,wall,window', 1, 2.2, 0.3],
+      ['hull floor 1x1', 'Hull', 'metal,floor', 1, 0.25, 1],
+      ['hull door 1x1', 'Hull', 'door', 1, 2.2, 0.3],
+      ['sliding door', 'Doors (Modern)', 'door', 1, 2, 0.2],
+      ['road asphalt 1x1', 'Street', 'road', 1, 0.25, 1],
+      ['sidewalk 1x1', 'Street', 'pavement', 1, 0.3, 1],
+      ['metal stairs', 'Outpost', 'stairs', 1, 1, 2],
+    ];
+    const SCIFI_PROPS = [
+      ['sci fi chest 02', 'Chest (Modern)', 'chest', 0.9, 0.6, 0.5],
+      ['computer terminal', 'Facility', 'computer', 0.8, 1.4, 0.5],
+      ['office desk modern', 'Office', 'desk', 1.4, 0.8, 0.7],
+      ['office chair', 'Office', 'chair', 0.6, 1, 0.6],
+      ['modern table', 'Office', 'table', 1.2, 0.8, 0.8],
+      ['metal locker', 'Facility', 'locker', 0.6, 2, 0.5],
+      ['bunk bed metal', 'Facility', 'bed', 1, 1.6, 2],
+      ['street light', 'Street', 'streetlight', 0.4, 4, 0.4],
+      ['dumpster', 'Street', 'dumpster', 1.8, 1.3, 1],
+      ['generator', 'Industrial', 'machine', 1.5, 1.5, 1],
+      ['barrel metal', 'Industrial', 'barrel', 0.6, 0.9, 0.6],
+      ['crate metal', 'Industrial', 'crate', 0.8, 0.8, 0.8],
+      ['neon sign bar', 'Street', 'sign', 1, 0.6, 0.1],
+    ];
+
     function  demoCatalog() {
       const assets = [];
       for (const [name, group, tags, sx, sy, sz] of TILES) {
@@ -5557,6 +5858,15 @@
         assets.push(makeAsset({
           id: fakeGuid(name), name, kind: 'prop', group, tags: tags.split(','),
           size: { x: sx, y: sy, z: sz }, center: { x: 0, y: sy / 2, z: 0 }, pack: 'synthetic',
+        }));
+      }
+      for (const [name, group, tags, sx, sy, sz] of SCIFI_TILES) {
+        assets.push(makeAsset({ id: fakeGuid(name), name, kind: 'tile', group, tags: tags.split(','), size: { x: sx, y: sy, z: sz }, pack: 'synthetic sci-fi' }));
+      }
+      for (const [name, group, tags, sx, sy, sz] of SCIFI_PROPS) {
+        assets.push(makeAsset({
+          id: fakeGuid(name), name, kind: 'prop', group, tags: tags.split(','),
+          size: { x: sx, y: sy, z: sz }, center: { x: 0, y: sy / 2, z: 0 }, pack: 'synthetic sci-fi',
         }));
       }
       return new Catalog(assets, { source: 'synthetic', synthetic: true, note: 'fake GUIDs: previews and tests only' });
@@ -5628,10 +5938,10 @@
     // window.TaleForge.
 
     const { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes } = __m['slab'];
-    const { Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, CATALOG_FORMAT } = __m['catalog'];
+    const { Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, assignGenres, tileClass, CATALOG_FORMAT } = __m['catalog'];
     const { placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER } = __m['geometry'];
-    const { Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport } = __m['kit'];
-    const { PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS } = __m['plan'];
+    const { Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, KIT_PREFIX, isKitMaterial, describeKitReport } = __m['kit'];
+    const { PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, planSchema, STRUCTURE_KINDS, ROOM_KINDS } = __m['plan'];
     const { compilePlan, groupRuns } = __m['compile'];
     const { chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET } = __m['chunk'];
     const { renderPreviewSvg, MATERIAL_COLORS } = __m['preview'];
@@ -5646,7 +5956,7 @@
     const { decodePng, encodePng, sniffImageType } = __m['png'];
     const { demoCatalog } = __m['demo-catalog'];
     const { probePlan, facingProbe } = __m['probe'];
-    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, compactSchema, SCHEMA_STEPS, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
+    return { SLAB_MAGIC, SLAB_VERSION, MAX_SLAB_BYTES, SlabError, encodeSlab, decodeSlab, encodeSlabBinary, decodeSlabBinary, guidToBytes, bytesToGuid, normalizePlacements, slabBounds, cleanSlabText, bytesToBase64, base64ToBytes, Catalog, makeAsset, assetsFromIndexJson, assetsFromContentPacks, inferBoundsScale, readContentPacks, describePackShapes, listOf, assignGenres, tileClass, CATALOG_FORMAT, placeCentered, placeInCell, placeOnEdge, placedBounds, rotatedFootprint, edgeRotation, EDGE_ROT, QUARTER, Kit, STYLES, STYLE_PRESETS, SURFACES, WALL_MATERIALS, PROP_ROLES, ROOF_KITS, KIT_PREFIX, isKitMaterial, describeKitReport, PLAN_SCHEMA, PLAN_VERSION, MAX_MAP_TILES, normalizePlan, planStats, planSchema, STRUCTURE_KINDS, ROOM_KINDS, compilePlan, groupRuns, chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET, renderPreviewSvg, MATERIAL_COLORS, buildSlabs, textReport, markerTile, PASTE_HELP, callClaude, collectStream, ClaudeError, DEFAULT_MODEL, compactSchema, SCHEMA_STEPS, ApiError, readSse, parseJsonText, callOpenAI, collectOpenAIStream, toResponsesInput, OPENAI_DEFAULT_MODEL, callModel, PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel, generatePlan, labelTrace, remapTraceLabels, systemPrompt, buildUserContent, SIZE_PRESETS, traceSchema, traceImage, heuristicLabels, traceToPlan, autoGridSize, resizeRgba, rgbToLab, TRACE_MEANINGS, decodePng, encodePng, sniffImageType, demoCatalog, probePlan, facingProbe };
   })();
   global.TaleForge = __m['index'];
 })(typeof window !== 'undefined' ? window : globalThis);

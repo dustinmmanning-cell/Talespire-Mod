@@ -94,7 +94,7 @@ test('anthropic: long enums are sent as described strings; the plan still normal
   const role = sent.properties.props.items.properties.role;
   assert.equal(role.type, 'string');
   assert.ok(!role.enum);
-  assert.match(role.description, /One of: tree, conifer, .*instrument, other$/);
+  assert.match(role.description, /One of: tree, conifer, .*instrument, .*other$/);
   assert.deepEqual(sent.properties.structures.items.properties.roof.enum, ['pitched', 'flat', 'none'], 'short enums stay');
   assert.equal(res.schemaMode, 'compact');
   // free-text near misses map onto the allowed values

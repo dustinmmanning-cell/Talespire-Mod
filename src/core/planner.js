@@ -2,8 +2,8 @@
 
 import { callModel } from './ai.js';
 import { parseJsonText } from './http.js';
-import { PLAN_SCHEMA, normalizePlan, MAX_MAP_TILES } from './plan.js';
-import { STYLES, SURFACES, WALL_MATERIALS } from './kit.js';
+import { PLAN_SCHEMA, normalizePlan, planSchema, MAX_MAP_TILES } from './plan.js';
+import { STYLES, SURFACES, WALL_MATERIALS, STYLE_PRESETS } from './kit.js';
 import { TRACE_MEANINGS } from './trace.js';
 
 export const SIZE_PRESETS = {
@@ -14,6 +14,10 @@ export const SIZE_PRESETS = {
   village: [64, 48],
   town: [110, 90],
 };
+
+const GENRE_LABEL = { fantasy: 'Fantasy', scifi: 'Sci-fi and modern' };
+const FANTASY_STYLES = STYLES.filter((st) => STYLE_PRESETS[st].genre === 'fantasy');
+const SCIFI_STYLES = STYLES.filter((st) => STYLE_PRESETS[st].genre === 'scifi');
 
 export const SYSTEM_PROMPT = `You are TaleForge, a master cartographer who designs battle maps, buildings and settlements for TaleSpire, a 3D virtual tabletop. You do not place 3D assets yourself: you draw a plan on a tile grid, and a deterministic builder turns it into TaleSpire tiles and props from the GM's own asset library.
 
@@ -45,14 +49,29 @@ export const SYSTEM_PROMPT = `You are TaleForge, a master cartographer who desig
 - Interiors: rooms 3x3 or larger; dungeon corridors 1-2 wide.
 - Every floor tile, wall segment and prop is one asset. Prefer fewer, richer features over blanket clutter. Maps up to about 120x120 are fine.
 - Match materials to the theme: wood walls and wood_floor for cottages and inns, stone or castle walls for keeps and temples, cave walls and cave_floor for caverns, carpet for manors, plank for docks.
+- The library has a fantasy half and a sci-fi and modern half. Fantasy styles (${FANTASY_STYLES.join(', ')}) build only from the fantasy half. Styles ${SCIFI_STYLES.join(', ')} build from the sci-fi half: brick, concrete, metal and industrial walls, concrete, asphalt and metal_floor surfaces, and the sci-fi building kits. Pick the style that matches the setting; for a sci-fi, cyberpunk or modern request never use a fantasy style. Sci-fi buildings use kinds like apartment, office, factory, garage, bunker, station and starship, and rooms like office, lab, bridge, quarters, cargo_bay, engine_room and medbay.
 - Write a title, a summary (a line of read-aloud flavour, then the layout in one or two sentences) and notes with GM tips: hidden doors, encounters, hazards, where the party enters.`;
+
+// Building kits are library groups with their own walls (and usually floors,
+// windows, doors): Catalog.buildingKits().
+function kitSection(catalog) {
+  const kits = catalog.buildingKits ? catalog.buildingKits() : [];
+  if (!kits.length) return '';
+  const has = (k) => ['windows', 'doors', 'floors', 'stairs'].filter((x) => k[x] > 0).join(', ');
+  const lines = [];
+  for (const genre of ['fantasy', 'scifi']) {
+    const list = kits.filter((k) => k.genre === genre);
+    if (list.length) lines.push(`${GENRE_LABEL[genre]}: ${list.map((k) => `${k.group} (walls${has(k) ? `, ${has(k)}` : ''})`).join('; ')}`);
+  }
+  return `\n\n# Building kits in this GM's library\nBesides the generic materials, a structure's wall can be one of these sets from the library, written "kit:<name>" (e.g. "kit:${kits[kits.length - 1].group}"); its floor can be "kit:<name>" too when the set has floors. A kit uses its own windows and doors where it has them.\n${lines.join('\n')}`;
+}
 
 function assetSection(catalog) {
   if (!catalog || !catalog.size || (catalog.meta && catalog.meta.synthetic)) return '';
-  const groups = catalog.propNamesByGroup({ maxPerGroup: 50, maxTotal: 1400, exclude: ['festive', 'christmas', 'cyber', 'neon', 'robot', 'scifi'] });
+  const groups = catalog.propNamesByGroup({ maxPerGroup: 50, maxTotal: 2000, exclude: ['festive', 'christmas'] });
   if (!groups.length) return '';
-  const lines = groups.map((g) => `${g.group}: ${g.names.join('; ')}`);
-  return `\n\n# Props in this GM's library\nWhen you want a specific object, put its exact name from this list in "asset"; otherwise leave "asset" empty and choose the closest "role".\n${lines.join('\n')}`;
+  const lines = groups.map((g) => `${g.genre === 'scifi' ? '[sci-fi] ' : ''}${g.group}: ${g.names.join('; ')}`);
+  return `${kitSection(catalog)}\n\n# Props in this GM's library\nWhen you want a specific object, put its exact name from this list in "asset"; otherwise leave "asset" empty and choose the closest "role". Groups marked [sci-fi] are from the sci-fi and modern library: use them for sci-fi, cyberpunk and modern builds, and not in fantasy ones unless asked.\n${lines.join('\n')}`;
 }
 
 export function systemPrompt(catalog) {
@@ -117,7 +136,7 @@ export async function generatePlan(opts) {
     schemaName: 'build_plan',
     system,
     messages,
-    schema: PLAN_SCHEMA,
+    schema: opts.catalog && opts.catalog.buildingKits && !(opts.catalog.meta && opts.catalog.meta.synthetic) ? planSchema(opts.catalog.buildingKits()) : PLAN_SCHEMA,
     onProgress: opts.onProgress,
     signal: opts.signal,
     fetchImpl: opts.fetchImpl,

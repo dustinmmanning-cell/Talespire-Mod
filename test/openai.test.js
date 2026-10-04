@@ -5,7 +5,8 @@ import { callOpenAI, toResponsesInput } from '../src/core/openai.js';
 import { callModel } from '../src/core/ai.js';
 import { ApiError } from '../src/core/http.js';
 import { generatePlan, labelTrace, traceSchema } from '../src/core/planner.js';
-import { PLAN_SCHEMA } from '../src/core/plan.js';
+import { PLAN_SCHEMA, planSchema } from '../src/core/plan.js';
+import { demoCatalog } from '../src/core/demo-catalog.js';
 import {
   PROVIDERS, providerOf, findModel, normalizeUsage, costOf, estimateBuildCost, formatCost, modelOptionLabel,
 } from '../src/core/providers.js';
@@ -170,7 +171,7 @@ const OPENAI_UNSUPPORTED = ['$anchor', '$dynamicAnchor', '$dynamicRef', '$recurs
   'maxContains', 'maxProperties', 'minContains', 'minProperties', 'not', 'oneOf', 'patternProperties', 'prefixItems',
   'propertyNames', 'then', 'unevaluatedItems', 'unevaluatedProperties', 'uniqueItems'];
 
-for (const [name, schema] of [['plan', PLAN_SCHEMA], ['trace', traceSchema()]]) {
+for (const [name, schema] of [['plan', PLAN_SCHEMA], ['plan with library kits', planSchema(demoCatalog().buildingKits())], ['trace', traceSchema()]]) {
   test(`${name} schema is valid for OpenAI strict structured outputs`, () => {
     let enumValues = 0;
     let properties = 0;
