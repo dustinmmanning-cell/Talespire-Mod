@@ -205,7 +205,7 @@ async function boot(inTS) {
   state.booted = true;
   wireUi();
   state.inTS = inTS && !!ts();
-  $('version').textContent = '0.1.0';
+  $('version').textContent = '0.2.0';
   const stored = await loadBlob('global');
   state.settings = migrateSettings(stored && stored.settings);
   await loadPrefabLib();

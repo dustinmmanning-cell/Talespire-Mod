@@ -18,15 +18,16 @@ TaleForge can build a scene from **finished slabs other TaleSpire players have s
 
 ## Reading a slab from mod.io
 
-What a TaleSpire slab upload contains isn't documented. mod.io stores every upload as a zip, so `slabFromBytes()` in `src/core/modio.js` tries every likely shape:
+What a TaleSpire slab upload contains isn't documented. What the first real runs showed:
 
-- slab text carried in the mod's metadata
-- a zip holding slab text, a raw slab binary or a gzip slab, including a zip inside a zip. ZIP64 zips are read too: .NET zip writers use the ZIP64 layout even for small files, with 0xFFFFFFFF in the size fields and the real sizes in an extra record. The first real run showed mod.io's slab zips need this.
-- gzip
-- base64 slab text, with or without code fences
-- JSON with a slab string inside
+- Every upload is a **ZIP64** zip. .NET zip writers use the ZIP64 layout even for small files, with 0xFFFFFFFF in the size fields and the real sizes in an extra record.
+- The zip holds `README.md` (a screenshot link and the description) and **`slabBin`**, TaleSpire's own slab file. It starts with the magic `0x51ABFACE` (bytes `ce fa ab 51`), a u16 version (1) and a length. The file is almost always that length plus 210 bytes. The rest of the layout isn't public.
 
-Every candidate is checked by decoding it. **Result > Copy mod.io report** shows how each slab was read, and why any couldn't be. That report is what to send if mod.io slabs don't load.
+`slabFromBytes()` in `src/core/modio.js` doesn't depend on a guess about the rest. For a `slabBin`, `extractSlabs()` decodes the ranges the header's length points at with every likely codec: gzip, zlib, raw DEFLATE, LZ4, or an uncompressed slab. It then scans the whole file for gzip, zlib, LZ4 and slab signatures. Whatever decodes to a valid v2 slab is kept, and several slab parts in one file are merged. The decoders in `src/core/inflate.js` report where each stream ends, so slab data in the middle of a file decodes exactly, whatever comes after it.
+
+Other shapes are read too: slab text in the mod's metadata, a zip holding slab text, a raw or gzip slab binary (also a zip inside a zip), base64 slab text with or without code fences, and JSON with a slab string inside.
+
+Every candidate is checked by decoding it. **Copy mod.io report** (under the error on Create, or on Result) shows how each slab was read, for example `zip entry "slabBin" (TaleSpire slab file v1: gzip at bytes 10-6149 of 6349, 200 bytes after)`. For a slab that couldn't be read, it shows what's inside the file: the header, the first bytes, the bytes after the data, compression signatures and what each decode attempt found. That report is what to send if mod.io slabs don't load.
 
 ## Turning slabs
 
@@ -52,7 +53,7 @@ If TaleSpire's panel can't reach mod.io directly (a cross-origin block), run `ta
 
 ## Limitations
 
-- **Untested against real mod.io data so far.** The client follows the mod.io v1 API, cross-checked against the open-source modio-rs client, and is tested against a fake mod.io. The slab file format and whether the panel can call mod.io directly are confirmed only by the first real run.
+- **The `slabBin` layout is inferred.** The first real runs confirmed that the panel can call mod.io directly, that search and downloads work, and what the zips contain. Reading `slabBin` relies on the header's length and signature scanning, checked against simulated files. A real one decoding is the final test.
 - **Search quality is mod.io's.** Results depend on how builders named and described their slabs.
 - **Slabs are placed whole.** They can't be resized or edited, and a slab with its own large ground base takes that whole area.
 - **Turns are quarter turns only.**

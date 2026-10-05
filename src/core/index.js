@@ -29,6 +29,7 @@ export { decodePng, encodePng, sniffImageType } from './png.js';
 export { demoCatalog } from './demo-catalog.js';
 export { probePlan, facingProbe } from './probe.js';
 export { isZip, zipEntries, zipEntryData, unzip, zip, crc32 } from './zip.js';
-export { ModioClient, MODIO_BASE, summarizeMod, slabFromBytes, slabFromText, describeSlabFile } from './modio.js';
+export { ModioClient, MODIO_BASE, summarizeMod, slabFromBytes, slabFromText, slabFromBinary, extractSlabs, slabFileHeader, SLAB_FILE_MAGIC, describeSlabFile } from './modio.js';
+export { inflateRaw, gunzipAt, zlibAt, lz4BlockAt, lz4FrameAt } from './inflate.js';
 export { analyzePrefab, prefabFromSlab, transformPrefab, rotatedSize, rotatedEntrances, rotatedGround, describePrefab } from './prefab.js';
 export { planSearches, gatherSlabs, generateCommunityPlan, SEARCH_SCHEMA } from './community.js';

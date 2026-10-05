@@ -201,7 +201,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 ## Testing
 
-- `npm test`: 90 unit tests, covering:
+- `npm test`: 96 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - reading asset packs through the Symbiote API: skipping packs TaleSpire cannot describe, and accepting pack contents in shapes other than the documented arrays
@@ -210,7 +210,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
   - chunking and registration
   - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, schema step-down on grammar-size errors, refusals, retries, quota errors, usage and cost
   - the plan and trace schemas against OpenAI's strict-mode rules
-  - community slabs: the mod.io client against a fake mod.io, reading slabs from zips and other uploads, quarter turns checked against the compiler, assembly and credits
+  - community slabs: the mod.io client against a fake mod.io, reading slabs from zips (ZIP64 included) and TaleSpire's `slabBin` files, the inflate and LZ4 decoders against zlib, quarter turns checked against the compiler, assembly and credits
   - tracing, the PNG codec, and the bundle
 - `npm run test:e2e`: the real Symbiote in Chromium (Playwright) with a fake `TS` API and fake Anthropic and OpenAI endpoints, from prompt to a decodable slab in the GM's hand, plus screenshots. It also switches provider and model in Settings and checks the cost labels, the request sent to each API, and the cost shown on the result.
 - `npm run test:live`: real API calls (a small room, a tavern, a refine, a traced map and the cheapest model), capped at $1.50 by default. Pass `--provider openai` or `--model ID` to choose.
@@ -251,6 +251,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 | `src/core/trace.js` | Image → labelled raster |
 | `src/core/modio.js` | mod.io client: TaleSpire slab search, download, reading slab files |
 | `src/core/zip.js` | Minimal zip reader and writer (mod.io files are zips) |
+| `src/core/inflate.js` | DEFLATE, gzip, zlib and LZ4 decoders that report where a stream ends, for slab data inside other files |
 | `src/core/prefab.js` | Community slabs as prefabs: analysis, quarter turns, placement |
 | `src/core/community.js` | The community flow: AI searches, gathering, composing |
 | `src/core/png.js` | PNG decode/encode for the CLI |

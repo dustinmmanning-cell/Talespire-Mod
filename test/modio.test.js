@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import zlib from 'node:zlib';
 import assert from 'node:assert/strict';
 import { zip, unzip, isZip, crc32 } from '../src/core/zip.js';
 import { ModioClient, slabFromBytes, slabFromText, describeSlabFile, summarizeMod, unescapeHtml } from '../src/core/modio.js';
@@ -159,4 +160,51 @@ test('mod.io: HTML-escaped names are decoded', () => {
   assert.equal(unescapeHtml('&quot;Bob&#39;s&quot; &lt;Inn&gt; &#x27;x&#x27; &#233;'), '"Bob\'s" <Inn> \'x\' é');
   const m = summarizeMod({ id: 3, name: 'Fish &amp; Chips', summary: 'A &lt;b&gt;shop&lt;/b&gt;', submitted_by: { username: 'a&amp;b' }, tags: [{ name: 'Slab' }] });
   assert.deepEqual([m.name, m.summary, m.creator], ['Fish & Chips', 'A <b>shop</b>', 'a&b']);
+});
+
+// TaleSpire's slab file, as mod.io serves it: a ZIP64 zip of README.md and
+// "slabBin" (magic 0x51ABFACE, version 1, a length, the slab, 200 more bytes).
+function slabBin(body, { length = body.length, trailer = 200, lead = 0 } = {}) {
+  const b = new Uint8Array(10 + lead + body.length + trailer).fill(0x5a);
+  const v = new DataView(b.buffer);
+  v.setUint32(0, 0x51abface, true);
+  v.setUint16(4, 1, true);
+  v.setUint32(6, length, true);
+  b.set(body, 10 + lead);
+  return b;
+}
+const slabZip = (bin) => zip([{ name: 'README.md', data: '![screenshot](thumb)\nA tower.' }, { name: 'slabBin', data: bin }], { zip64: true });
+
+test('slabBin: TaleSpire slab files from the in-game slab browser', async () => {
+  const raw = encodeSlabBinary(placements);
+  const gz = await gzipBytes(raw);
+  const deflated = zlib.deflateRawSync(raw);
+  const second = await gzipBytes(encodeSlabBinary([{ assetId: wall.id, x: 5, y: 1, z: 5, rot: 6 }]));
+  const cases = [
+    ['gzip after the header', slabBin(gz), /TaleSpire slab file v1: gzip at bytes 10-\d+ of \d+, 200 bytes after\)/, 3],
+    ['raw deflate', slabBin(deflated), /deflate at bytes 10-/, 3],
+    ['zlib', slabBin(zlib.deflateSync(raw)), /zlib at bytes 10-/, 3],
+    ['raw slab binary', slabBin(raw), /raw at bytes 10-/, 3],
+    ['the slab at the end', slabBin(gz, { lead: 200, trailer: 0 }), /gzip at bytes 210-\d+ of \d+\)$/, 3],
+    ['two parts', slabBin(new Uint8Array([...gz, 0, 0, 0, 0, ...second])), /2 parts merged/, 4],
+  ];
+  for (const [what, bin, how, count] of cases) {
+    const r = await slabFromBytes(await slabZip(bin), 'x.zip');
+    assert.ok(r, what);
+    assert.match(r.how, /^zip entry "slabBin" \(/, what);
+    assert.match(r.how, how, what);
+    assert.equal((await decodeSlab(r.text)).placements.length, count, what);
+  }
+});
+
+test('slabBin: an unreadable one says what is inside, for the report', async () => {
+  const noise = new Uint8Array(3000).map((_, i) => (i * 7919 + 13) % 251);
+  const d = await describeSlabFile(await slabZip(slabBin(noise)), 'x.zip');
+  const e = d.entries.find((f) => f.name === 'slabBin');
+  assert.equal(e.slab, 'no');
+  assert.deepEqual(e.probe.header, { version: 1, length: 3000, length16: 3000 });
+  assert.match(e.probe.head, /^ce fa ab 51 01 00 b8 0b 00 00 /);
+  assert.equal(e.probe.afterData, Array(48).fill('5a').join(' '));
+  assert.ok(e.probe.attempts.some((a) => /^deflate at 10 \(3000 bytes\): /.test(a)), e.probe.attempts.join('; '));
+  assert.ok(!d.entries.find((f) => f.name === 'README.md').probe, 'text files are not probed');
 });

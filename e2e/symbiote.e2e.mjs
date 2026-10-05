@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
 import { demoCatalog } from '../src/core/demo-catalog.js';
-import { decodeSlab, encodeSlab } from '../src/core/slab.js';
+import { decodeSlab, encodeSlab, base64ToBytes } from '../src/core/slab.js';
 import { compilePlan } from '../src/core/compile.js';
 import { Kit } from '../src/core/kit.js';
 import { zip } from '../src/core/zip.js';
@@ -316,8 +316,15 @@ const cottagePlan = {
   structures: [{ id: 'c', label: 'C', kind: 'cottage', parts: [{ x: 1, y: 1, w: 6, h: 4 }], rooms: [], doors: [{ x: 3, y: 4, side: 's' }], wall: 'wood', floor: 'wood_floor', storeys: 1, roof: 'pitched', windows: 'few', interiorWalls: false, furnish: 'normal' }],
 };
 const cottageSlab = (await encodeSlab(compilePlan(cottagePlan, new Kit(demoCatalog())).placements)).text;
-// ZIP64, as the real mod.io slab files turned out to be
-const cottageZip = Buffer.from(await zip([{ name: 'preview.png', data: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }, { name: 'slab.txt', data: cottageSlab }], { zip64: true }));
+// Shaped like the real uploads: a ZIP64 zip of README.md and "slabBin", in
+// TaleSpire's 0x51ABFACE container (header, gzip slab, 200 more bytes).
+const cottageGz = base64ToBytes(cottageSlab);
+const slabBin = new Uint8Array(10 + cottageGz.length + 200).fill(7);
+new DataView(slabBin.buffer).setUint32(0, 0x51abface, true);
+new DataView(slabBin.buffer).setUint16(4, 1, true);
+new DataView(slabBin.buffer).setUint32(6, cottageGz.length, true);
+slabBin.set(cottageGz, 10);
+const cottageZip = Buffer.from(await zip([{ name: 'README.md', data: '![screenshot](thumb)\nA cosy cottage.' }, { name: 'slabBin', data: slabBin }], { zip64: true }));
 const lanePlan = {
   title: 'Cottage Lane', summary: 'Two cottages on a lane.', width: 24, height: 16, style: 'medieval', ground: 'grass', areas: [], barriers: [], props: [], scatter: [], notes: '', structures: [],
   paths: [{ label: 'lane', material: 'dirt', width: 2, points: [[0.5, 8], [23.5, 8]] }],
@@ -367,7 +374,7 @@ assert.match(await page4.innerHTML('#r-preview'), /Cosy Cottage/);
 await page4.screenshot({ path: join(outDir, '9-community.png'), fullPage: true });
 await page4.click('#r-modio-report');
 const report = JSON.parse(await page4.evaluate(() => window.__clip.at(-1)));
-assert.match(report.usable[0].how, /zip entry "slab.txt"/);
+assert.match(report.usable[0].how, /zip entry "slabBin" \(TaleSpire slab file v1: gzip at bytes 10-\d+ of \d+, 200 bytes after\)/);
 assert.equal(report.usable[0].size, '6x4');
 // rebuild from Plan JSON uses the kept slab without downloading again
 const downloadsBefore = modioCalls.length;
