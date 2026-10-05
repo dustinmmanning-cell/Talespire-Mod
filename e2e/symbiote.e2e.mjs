@@ -316,7 +316,8 @@ const cottagePlan = {
   structures: [{ id: 'c', label: 'C', kind: 'cottage', parts: [{ x: 1, y: 1, w: 6, h: 4 }], rooms: [], doors: [{ x: 3, y: 4, side: 's' }], wall: 'wood', floor: 'wood_floor', storeys: 1, roof: 'pitched', windows: 'few', interiorWalls: false, furnish: 'normal' }],
 };
 const cottageSlab = (await encodeSlab(compilePlan(cottagePlan, new Kit(demoCatalog())).placements)).text;
-const cottageZip = Buffer.from(await zip([{ name: 'preview.png', data: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }, { name: 'slab.txt', data: cottageSlab }]));
+// ZIP64, as the real mod.io slab files turned out to be
+const cottageZip = Buffer.from(await zip([{ name: 'preview.png', data: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }, { name: 'slab.txt', data: cottageSlab }], { zip64: true }));
 const lanePlan = {
   title: 'Cottage Lane', summary: 'Two cottages on a lane.', width: 24, height: 16, style: 'medieval', ground: 'grass', areas: [], barriers: [], props: [], scatter: [], notes: '', structures: [],
   paths: [{ label: 'lane', material: 'dirt', width: 2, points: [[0.5, 8], [23.5, 8]] }],

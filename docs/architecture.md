@@ -201,7 +201,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 ## Testing
 
-- `npm test`: 88 unit tests, covering:
+- `npm test`: 90 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - reading asset packs through the Symbiote API: skipping packs TaleSpire cannot describe, and accepting pack contents in shapes other than the documented arrays

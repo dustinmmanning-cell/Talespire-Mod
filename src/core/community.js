@@ -82,7 +82,7 @@ export async function gatherSlabs({ modio, catalog, searches, perSearch = 6, max
       else if (pf.w > maxSide || pf.d > maxSide) rejected.push({ ...credit(it), reason: `too big (${pf.w}x${pf.d} tiles)` });
       else candidates.push(pf);
     } catch (e) {
-      rejected.push({ ...credit(it), reason: e.message });
+      rejected.push({ ...credit(it), reason: e.message, details: e.details || null });
     } finally {
       done++;
       if (onProgress) onProgress({ phase: 'downloading', done, total: list.length });
@@ -116,6 +116,7 @@ export async function generateCommunityPlan(opts) {
   }
   if (!searches.length) throw new Error('Could not work out what to search mod.io for. Describe the buildings you want.');
   const { candidates, rejected, found } = await gatherSlabs({ ...opts, searches });
+  if (opts.onGathered) opts.onGathered({ searches, candidates, rejected, found });
   if (!candidates.length) {
     const why = rejected.length ? ` ${rejected.length} were found but can't be used here (${[...new Set(rejected.map((r) => r.reason))].slice(0, 2).join('; ')}).` : '';
     throw new Error(`No usable community slabs found on mod.io for: ${searches.map((s) => s.query).join(', ')}.${why} Try other words, or build without community slabs.`);

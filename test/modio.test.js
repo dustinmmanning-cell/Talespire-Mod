@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { zip, unzip, isZip, crc32 } from '../src/core/zip.js';
-import { ModioClient, slabFromBytes, slabFromText, describeSlabFile, summarizeMod } from '../src/core/modio.js';
+import { ModioClient, slabFromBytes, slabFromText, describeSlabFile, summarizeMod, unescapeHtml } from '../src/core/modio.js';
+import { zipEntries } from '../src/core/zip.js';
 import { encodeSlab, encodeSlabBinary, decodeSlab, gzipBytes } from '../src/core/slab.js';
 import { demoCatalog } from '../src/core/demo-catalog.js';
 
@@ -125,4 +126,37 @@ test('mod.io: errors are plain, rate limits are waited out, proxies relay downlo
   const got = await proxied.fetchSlab(items[0]);
   assert.ok(got.text.startsWith('H4sI'));
   assert.equal(summarizeMod({ id: 9 }).name, 'mod 9');
+});
+
+// What the first real run hit: mod.io's TaleSpire slab zips read as "zip content
+// too large", because .NET zip writers use ZIP64 even for tiny files
+// (0xFFFFFFFF in the size fields, real sizes in an extra record).
+test('zip: ZIP64 archives, a broken directory, and an oversized entry', async () => {
+  const text = await slabText();
+  const z = await zip([{ name: 'slab.txt', data: text }, { name: 'info.json', data: '{"a":1}' }], { zip64: true });
+  const view = new DataView(z.buffer);
+  const eocd = z.length - 22;
+  assert.equal(view.getUint32(eocd + 16, true), 0xffffffff, 'directory offset only in the ZIP64 record');
+  const entries = zipEntries(z);
+  assert.deepEqual(entries.map((e) => e.name), ['slab.txt', 'info.json']);
+  assert.ok(entries.every((e) => e.size < 100000 && e.offset < z.length), JSON.stringify(entries));
+  const r = await slabFromBytes(z);
+  assert.ok(r, 'slab found in a ZIP64 zip');
+  assert.equal((await decodeSlab(r.text)).placements.length, 3);
+  // no usable directory at all: walk the local headers
+  const plain = await zip([{ name: 'slab.txt', data: text }]);
+  const noDir = plain.subarray(0, plain.length - 22);
+  assert.equal(zipEntries(noDir)[0].name, 'slab.txt');
+  assert.ok(await slabFromBytes(noDir), 'slab found without a central directory');
+  // a huge entry beside the slab is skipped, not fatal
+  const big = await zip([{ name: 'preview.png', data: new Uint8Array(200000) }, { name: 'slab.txt', data: text }]);
+  const files = await unzip(big, { maxBytes: 100000 });
+  assert.deepEqual(files.map((f) => f.name), ['slab.txt']);
+});
+
+test('mod.io: HTML-escaped names are decoded', () => {
+  assert.equal(unescapeHtml('LemurianTownSmithy Shop &amp; BlackSmith'), 'LemurianTownSmithy Shop & BlackSmith');
+  assert.equal(unescapeHtml('&quot;Bob&#39;s&quot; &lt;Inn&gt; &#x27;x&#x27; &#233;'), '"Bob\'s" <Inn> \'x\' é');
+  const m = summarizeMod({ id: 3, name: 'Fish &amp; Chips', summary: 'A &lt;b&gt;shop&lt;/b&gt;', submitted_by: { username: 'a&amp;b' }, tags: [{ name: 'Slab' }] });
+  assert.deepEqual([m.name, m.summary, m.creator], ['Fish & Chips', 'A <b>shop</b>', 'a&b']);
 });

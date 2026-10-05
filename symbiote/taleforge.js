@@ -6296,13 +6296,44 @@
   // ---- zip.js ----
   __m['zip'] = (function () {
     // Minimal zip reader: enough to open the archives mod.io hosts (every mod.io
-    // upload is a zip). Reads the central directory, supports stored and deflated
-    // entries, and inflates with the platform's DecompressionStream, so it runs
-    // unchanged in a Symbiote and in Node 18+.
+    // upload is a zip). Reads the central directory, including ZIP64 (which .NET
+    // zip writers use even for small files: 0xFFFFFFFF in the size fields, the real
+    // sizes in an extra record), supports stored and deflated entries, and
+    // inflates with the platform's DecompressionStream, so it runs unchanged in a
+    // Symbiote and in Node 18+. If the directory can't be read, it walks the
+    // local file headers instead.
 
     const EOCD_SIG = 0x06054b50;
     const CENTRAL_SIG = 0x02014b50;
     const LOCAL_SIG = 0x04034b50;
+    const ZIP64_EOCD_SIG = 0x06064b50;
+    const ZIP64_LOCATOR_SIG = 0x07064b50;
+    const MAX32 = 0xffffffff;
+
+    const u64 = (view, off) => view.getUint32(off + 4, true) * 2 ** 32 + view.getUint32(off, true);
+
+    // Replace 0xFFFFFFFF fields with the ZIP64 extra record's values, in the order
+    // the spec gives: uncompressed size, compressed size, local header offset.
+    function applyZip64(view, extraStart, extraLen, fields) {
+      let p = extraStart;
+      const end = extraStart + extraLen;
+      while (p + 4 <= end) {
+        const id = view.getUint16(p, true);
+        const len = view.getUint16(p + 2, true);
+        if (id === 0x0001) {
+          let q = p + 4;
+          for (const k of ['size', 'compressedSize', 'offset']) {
+            if (k in fields && fields[k] === MAX32 && q + 8 <= p + 4 + len) {
+              fields[k] = u64(view, q);
+              q += 8;
+            }
+          }
+          return fields;
+        }
+        p += 4 + len;
+      }
+      return fields;
+    }
 
     function  isZip(bytes) {
       return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
@@ -6310,6 +6341,16 @@
 
     // -> [{ name, method, compressedSize, size, offset }]
     function  zipEntries(bytes) {
+      try {
+        return centralEntries(bytes);
+      } catch (e) {
+        const local = localEntries(bytes);
+        if (local.length) return local;
+        throw e;
+      }
+    }
+
+    function centralEntries(bytes) {
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       let eocd = -1;
       for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65535); i--) {
@@ -6319,22 +6360,55 @@
         }
       }
       if (eocd < 0) throw new Error('not a zip archive (no end of central directory)');
-      const count = view.getUint16(eocd + 10, true);
+      let count = view.getUint16(eocd + 10, true);
       let off = view.getUint32(eocd + 16, true);
+      // ZIP64 end of central directory, found through the locator just before
+      const loc = eocd - 20;
+      if (loc >= 0 && view.getUint32(loc, true) === ZIP64_LOCATOR_SIG) {
+        const z = u64(view, loc + 8);
+        if (z + 56 <= bytes.length && view.getUint32(z, true) === ZIP64_EOCD_SIG) {
+          count = u64(view, z + 32);
+          off = u64(view, z + 48);
+        }
+      }
       const out = [];
       const dec = new TextDecoder();
       for (let n = 0; n < count; n++) {
         if (off + 46 > bytes.length || view.getUint32(off, true) !== CENTRAL_SIG) throw new Error('corrupt zip central directory');
         const method = view.getUint16(off + 10, true);
-        const compressedSize = view.getUint32(off + 20, true);
-        const size = view.getUint32(off + 24, true);
         const nameLen = view.getUint16(off + 28, true);
         const extraLen = view.getUint16(off + 30, true);
         const commentLen = view.getUint16(off + 32, true);
-        const local = view.getUint32(off + 42, true);
         const name = dec.decode(bytes.subarray(off + 46, off + 46 + nameLen));
-        out.push({ name, method, compressedSize, size, offset: local });
+        const f = applyZip64(view, off + 46 + nameLen, extraLen, {
+          size: view.getUint32(off + 24, true),
+          compressedSize: view.getUint32(off + 20, true),
+          offset: view.getUint32(off + 42, true),
+        });
+        out.push({ name, method, compressedSize: f.compressedSize, size: f.size, offset: f.offset });
         off += 46 + nameLen + extraLen + commentLen;
+      }
+      return out;
+    }
+
+    // Fallback: walk local file headers from the start. Entries whose sizes are
+    // only in a trailing data descriptor can't be walked past.
+    function localEntries(bytes) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const dec = new TextDecoder();
+      const out = [];
+      let off = 0;
+      while (off + 30 <= bytes.length && view.getUint32(off, true) === LOCAL_SIG) {
+        const flags = view.getUint16(off + 6, true);
+        const method = view.getUint16(off + 8, true);
+        const nameLen = view.getUint16(off + 26, true);
+        const extraLen = view.getUint16(off + 28, true);
+        const name = dec.decode(bytes.subarray(off + 30, off + 30 + nameLen));
+        const f = applyZip64(view, off + 30 + nameLen, extraLen, { size: view.getUint32(off + 22, true), compressedSize: view.getUint32(off + 18, true) });
+        if ((flags & 8) && f.compressedSize === 0) break;
+        out.push({ name, method, compressedSize: f.compressedSize, size: f.size, offset: off });
+        off += 30 + nameLen + extraLen + f.compressedSize;
+        if (flags & 8) off += view.getUint32(off, true) === 0x08074b50 ? 16 : 12;
       }
       return out;
     }
@@ -6351,16 +6425,24 @@
     }
 
     // -> [{ name, data }] for every file (not directories), smallest first.
+    // Entries that are too big (or unreadable) are skipped, not fatal: a slab
+    // next to a large preview image still comes through.
     async function  unzip(bytes, { maxEntries = 64, maxBytes = 32 * 1024 * 1024 } = {}) {
       const entries = zipEntries(bytes).filter((e) => !e.name.endsWith('/'));
       if (entries.length > maxEntries) throw new Error(`zip has ${entries.length} files; too many`);
       const out = [];
       let total = 0;
       for (const e of entries.sort((a, b) => a.size - b.size)) {
-        total += e.size;
-        if (total > maxBytes) throw new Error('zip content too large');
-        out.push({ name: e.name, data: await zipEntryData(bytes, e) });
+        if (total + e.size > maxBytes || e.compressedSize > bytes.length) continue;
+        try {
+          const data = await zipEntryData(bytes, e);
+          total += data.length;
+          out.push({ name: e.name, data });
+        } catch {
+          // unreadable entry: try the others
+        }
       }
+      if (!out.length && entries.length) throw new Error(`none of its ${entries.length} file(s) could be read`);
       return out;
     }
 
@@ -6393,7 +6475,9 @@
     }
 
     // files: [{ name, data: Uint8Array|string }]
-    async function  zip(files, { deflate = true } = {}) {
+    // zip64: write the sizes and offsets the way .NET writers do (0xFFFFFFFF in
+    // the fields, real values in ZIP64 extra records and end records).
+    async function  zip(files, { deflate = true, zip64 = false } = {}) {
       const enc = new TextEncoder();
       const locals = [];
       const centrals = [];
@@ -6403,41 +6487,76 @@
         const comp = deflate ? await deflateRaw(raw) : raw;
         const name = enc.encode(f.name);
         const crc = crc32(raw);
-        const local = new Uint8Array(30 + name.length);
+        const z64 = (vals) => {
+          const x = new Uint8Array(4 + 8 * vals.length);
+          const xv = new DataView(x.buffer);
+          xv.setUint16(0, 1, true);
+          xv.setUint16(2, 8 * vals.length, true);
+          vals.forEach((v, i) => {
+            xv.setUint32(4 + 8 * i, v % 2 ** 32, true);
+            xv.setUint32(8 + 8 * i, Math.floor(v / 2 ** 32), true);
+          });
+          return x;
+        };
+        const lx = zip64 ? z64([raw.length, comp.length]) : new Uint8Array(0);
+        const local = new Uint8Array(30 + name.length + lx.length);
         const lv = new DataView(local.buffer);
         lv.setUint32(0, LOCAL_SIG, true);
-        lv.setUint16(4, 20, true);
+        lv.setUint16(4, zip64 ? 45 : 20, true);
         lv.setUint16(8, deflate ? 8 : 0, true);
         lv.setUint32(14, crc, true);
-        lv.setUint32(18, comp.length, true);
-        lv.setUint32(22, raw.length, true);
+        lv.setUint32(18, zip64 ? MAX32 : comp.length, true);
+        lv.setUint32(22, zip64 ? MAX32 : raw.length, true);
         lv.setUint16(26, name.length, true);
+        lv.setUint16(28, lx.length, true);
         local.set(name, 30);
-        const central = new Uint8Array(46 + name.length);
+        local.set(lx, 30 + name.length);
+        const cx = zip64 ? z64([raw.length, comp.length, offset]) : new Uint8Array(0);
+        const central = new Uint8Array(46 + name.length + cx.length);
         const cv = new DataView(central.buffer);
         cv.setUint32(0, CENTRAL_SIG, true);
-        cv.setUint16(4, 20, true);
-        cv.setUint16(6, 20, true);
+        cv.setUint16(4, zip64 ? 45 : 20, true);
+        cv.setUint16(6, zip64 ? 45 : 20, true);
         cv.setUint16(10, deflate ? 8 : 0, true);
         cv.setUint32(16, crc, true);
-        cv.setUint32(20, comp.length, true);
-        cv.setUint32(24, raw.length, true);
+        cv.setUint32(20, zip64 ? MAX32 : comp.length, true);
+        cv.setUint32(24, zip64 ? MAX32 : raw.length, true);
         cv.setUint16(28, name.length, true);
-        cv.setUint32(42, offset, true);
+        cv.setUint16(30, cx.length, true);
+        cv.setUint32(42, zip64 ? MAX32 : offset, true);
         central.set(name, 46);
+        central.set(cx, 46 + name.length);
         locals.push(local, comp);
         centrals.push(central);
         offset += local.length + comp.length;
       }
       const cdSize = centrals.reduce((n, c) => n + c.length, 0);
+      const tail = [];
+      if (zip64) {
+        const rec = new Uint8Array(56);
+        const rv = new DataView(rec.buffer);
+        rv.setUint32(0, ZIP64_EOCD_SIG, true);
+        rv.setUint32(4, 44, true);
+        rv.setUint16(12, 45, true);
+        rv.setUint32(24, files.length, true);
+        rv.setUint32(32, files.length, true);
+        rv.setUint32(40, cdSize, true);
+        rv.setUint32(48, offset, true);
+        const locator = new Uint8Array(20);
+        const xv = new DataView(locator.buffer);
+        xv.setUint32(0, ZIP64_LOCATOR_SIG, true);
+        xv.setUint32(8, offset + cdSize, true);
+        xv.setUint32(16, 1, true);
+        tail.push(rec, locator);
+      }
       const eocd = new Uint8Array(22);
       const ev = new DataView(eocd.buffer);
       ev.setUint32(0, EOCD_SIG, true);
-      ev.setUint16(8, files.length, true);
-      ev.setUint16(10, files.length, true);
-      ev.setUint32(12, cdSize, true);
-      ev.setUint32(16, offset, true);
-      const parts = [...locals, ...centrals, eocd];
+      ev.setUint16(8, zip64 ? 0xffff : files.length, true);
+      ev.setUint16(10, zip64 ? 0xffff : files.length, true);
+      ev.setUint32(12, zip64 ? MAX32 : cdSize, true);
+      ev.setUint32(16, zip64 ? MAX32 : offset, true);
+      const parts = [...locals, ...centrals, ...tail, eocd];
       const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
       let o = 0;
       for (const p of parts) {
@@ -6590,6 +6709,15 @@
       return `mod.io error ${status}${err.message ? `: ${err.message}` : ''}`;
     }
 
+    // mod.io returns names and summaries HTML-escaped ("Shop &amp; BlackSmith").
+    function  unescapeHtml(s) {
+      return String(s || '').replace(/&(amp|lt|gt|quot|apos|#39|#x27|#(\d+)|#x([0-9a-f]+));/gi, (m, name, dec, hex) => {
+        if (dec) return String.fromCodePoint(Number(dec));
+        if (hex) return String.fromCodePoint(parseInt(hex, 16));
+        return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'", '#x27': "'" }[name.toLowerCase()] || m;
+      });
+    }
+
     // The parts of a mod.io mod object TaleForge uses.
     function  summarizeMod(m) {
       const kvp = {};
@@ -6598,13 +6726,13 @@
       return {
         ref: `modio:${m.id}`,
         id: m.id,
-        name: m.name || `mod ${m.id}`,
-        summary: m.summary || '',
+        name: unescapeHtml(m.name) || `mod ${m.id}`,
+        summary: unescapeHtml(m.summary),
         url: m.profile_url || '',
-        creator: (m.submitted_by && m.submitted_by.username) || '',
+        creator: unescapeHtml(m.submitted_by && m.submitted_by.username),
         creatorUrl: (m.submitted_by && m.submitted_by.profile_url) || '',
         thumb: (m.logo && (m.logo.thumb_320x180 || m.logo.original)) || '',
-        tags: (m.tags || []).map((t) => t.name).filter(Boolean),
+        tags: (m.tags || []).map((t) => unescapeHtml(t.name)).filter(Boolean),
         kvp,
         metadataBlob: m.metadata_blob || '',
         stats: m.stats ? { downloads: m.stats.downloads_total || 0, subscribers: m.stats.subscribers_total || 0, rating: m.stats.ratings_display_text || '' } : null,
@@ -6716,7 +6844,7 @@
       return out;
     }
 
-    return { MODIO_BASE, TALESPIRE_NAME_ID, ModioClient, summarizeMod, slabFromText, slabFromBytes, describeSlabFile };
+    return { MODIO_BASE, TALESPIRE_NAME_ID, ModioClient, unescapeHtml, summarizeMod, slabFromText, slabFromBytes, describeSlabFile };
   })();
   // ---- community.js ----
   __m['community'] = (function () {
@@ -6803,7 +6931,7 @@
           else if (pf.w > maxSide || pf.d > maxSide) rejected.push({ ...credit(it), reason: `too big (${pf.w}x${pf.d} tiles)` });
           else candidates.push(pf);
         } catch (e) {
-          rejected.push({ ...credit(it), reason: e.message });
+          rejected.push({ ...credit(it), reason: e.message, details: e.details || null });
         } finally {
           done++;
           if (onProgress) onProgress({ phase: 'downloading', done, total: list.length });
@@ -6837,6 +6965,7 @@
       }
       if (!searches.length) throw new Error('Could not work out what to search mod.io for. Describe the buildings you want.');
       const { candidates, rejected, found } = await gatherSlabs({ ...opts, searches });
+      if (opts.onGathered) opts.onGathered({ searches, candidates, rejected, found });
       if (!candidates.length) {
         const why = rejected.length ? ` ${rejected.length} were found but can't be used here (${[...new Set(rejected.map((r) => r.reason))].slice(0, 2).join('; ')}).` : '';
         throw new Error(`No usable community slabs found on mod.io for: ${searches.map((s) => s.query).join(', ')}.${why} Try other words, or build without community slabs.`);

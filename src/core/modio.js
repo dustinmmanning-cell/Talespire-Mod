@@ -138,6 +138,15 @@ function friendlyModioError(status, err) {
   return `mod.io error ${status}${err.message ? `: ${err.message}` : ''}`;
 }
 
+// mod.io returns names and summaries HTML-escaped ("Shop &amp; BlackSmith").
+export function unescapeHtml(s) {
+  return String(s || '').replace(/&(amp|lt|gt|quot|apos|#39|#x27|#(\d+)|#x([0-9a-f]+));/gi, (m, name, dec, hex) => {
+    if (dec) return String.fromCodePoint(Number(dec));
+    if (hex) return String.fromCodePoint(parseInt(hex, 16));
+    return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'", '#x27': "'" }[name.toLowerCase()] || m;
+  });
+}
+
 // The parts of a mod.io mod object TaleForge uses.
 export function summarizeMod(m) {
   const kvp = {};
@@ -146,13 +155,13 @@ export function summarizeMod(m) {
   return {
     ref: `modio:${m.id}`,
     id: m.id,
-    name: m.name || `mod ${m.id}`,
-    summary: m.summary || '',
+    name: unescapeHtml(m.name) || `mod ${m.id}`,
+    summary: unescapeHtml(m.summary),
     url: m.profile_url || '',
-    creator: (m.submitted_by && m.submitted_by.username) || '',
+    creator: unescapeHtml(m.submitted_by && m.submitted_by.username),
     creatorUrl: (m.submitted_by && m.submitted_by.profile_url) || '',
     thumb: (m.logo && (m.logo.thumb_320x180 || m.logo.original)) || '',
-    tags: (m.tags || []).map((t) => t.name).filter(Boolean),
+    tags: (m.tags || []).map((t) => unescapeHtml(t.name)).filter(Boolean),
     kvp,
     metadataBlob: m.metadata_blob || '',
     stats: m.stats ? { downloads: m.stats.downloads_total || 0, subscribers: m.stats.subscribers_total || 0, rating: m.stats.ratings_display_text || '' } : null,

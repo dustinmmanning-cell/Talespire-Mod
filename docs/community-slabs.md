@@ -21,7 +21,7 @@ TaleForge can build a scene from **finished slabs other TaleSpire players have s
 What a TaleSpire slab upload contains isn't documented. mod.io stores every upload as a zip, so `slabFromBytes()` in `src/core/modio.js` tries every likely shape:
 
 - slab text carried in the mod's metadata
-- a zip holding slab text, a raw slab binary or a gzip slab, including a zip inside a zip
+- a zip holding slab text, a raw slab binary or a gzip slab, including a zip inside a zip. ZIP64 zips are read too: .NET zip writers use the ZIP64 layout even for small files, with 0xFFFFFFFF in the size fields and the real sizes in an extra record. The first real run showed mod.io's slab zips need this.
 - gzip
 - base64 slab text, with or without code fences
 - JSON with a slab string inside

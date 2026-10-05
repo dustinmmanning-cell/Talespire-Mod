@@ -626,6 +626,7 @@ async function buildAndShow(plan, { warnings = [], remember = true, ai } = {}) {
 
 async function onGenerate() {
   setError('create-error', null);
+  show('create-modio-report', false);
   let opts;
   try {
     opts = apiOpts();
@@ -654,7 +655,7 @@ async function onGenerate() {
     };
     let res;
     if (community) {
-      res = await TF.generateCommunityPlan({ ...args, modio: modioClient(), cache: state.prefabLib });
+      res = await TF.generateCommunityPlan({ ...args, modio: modioClient(), cache: state.prefabLib, onGathered: (g) => (state.community = g) });
       for (const [ref, pf] of res.prefabs) state.prefabs.set(ref, pf);
       state.community = { searches: res.searches, candidates: res.candidates, rejected: res.rejected, found: res.found };
       await savePrefabLib(res.plan.prefabs.map((x) => x.ref));
@@ -668,6 +669,7 @@ async function onGenerate() {
     await buildAndShow(res.plan, { warnings: res.warnings, ai: aiInfo(res, 'Generated') });
   } catch (e) {
     setError('create-error', e);
+    if (community && state.community) show('create-modio-report');
   } finally {
     p.done();
     state.abort = null;
@@ -857,7 +859,7 @@ function modioReport() {
     searches: cm.searches,
     found: cm.found,
     usable: cm.candidates.map((c) => ({ ref: c.ref, name: c.name, how: c.how, size: `${c.w}x${c.d}`, floors: c.floors, doors: c.entrances, assets: c.count, genre: c.genre })),
-    notUsable: cm.rejected.map((r) => ({ ref: r.ref, name: r.name, reason: r.reason })),
+    notUsable: cm.rejected.map((r) => ({ ref: r.ref, name: r.name, reason: r.reason, file: r.details || undefined })),
     placed: (state.build && state.build.credits) || [],
   }, null, 1);
 }
@@ -1253,6 +1255,7 @@ function wireUi() {
     saveSettings();
   });
   $('r-modio-report').addEventListener('click', () => copyText(modioReport(), 'mod.io report copied. Paste it to the developer.'));
+  $('create-modio-report').addEventListener('click', () => copyText(modioReport(), 'mod.io report copied. Paste it to the developer.'));
   $('pack-diagnostics').addEventListener('click', () => copyText(packDiagnostics(), 'Pack diagnostics copied. Paste them to the developer.'));
   $('catalog-export').addEventListener('click', () => state.catalog && copyText(JSON.stringify(state.catalog.toJSON()), `Catalog copied (${state.catalog.size} assets). Save it as a .json file for the CLI.`));
   $('settings-save').addEventListener('click', onSaveSettings);
