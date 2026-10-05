@@ -149,8 +149,36 @@ const SCIFI_PROPS = [
   ['neon sign bar', 'Street', 'sign', 1, 0.6, 0.1],
 ];
 
+// Minis: name, group, tags.
+const MINIS = [
+  ['Human Commoner 01', 'Townsfolk', 'human,commoner'],
+  ['Human Commoner 02', 'Townsfolk', 'human,commoner'],
+  ['Human Guard', 'Townsfolk', 'human,guard,soldier'],
+  ['Barkeep', 'Townsfolk', 'human,barkeep,innkeeper'],
+  ['Merchant', 'Townsfolk', 'human,merchant,shopkeeper'],
+  ['Farmer', 'Townsfolk', 'human,farmer,peasant'],
+  ['Noble Woman', 'Townsfolk', 'human,noble'],
+  ['Priest', 'Townsfolk', 'human,priest,cleric'],
+  ['Bard', 'Townsfolk', 'human,bard,musician'],
+  ['Dwarf Blacksmith', 'Humanoid', 'dwarf,smith'],
+  ['Dwarf Fighter', 'Humanoid', 'dwarf,fighter'],
+  ['Elf Wizard', 'Humanoid', 'elf,wizard,mage'],
+  ['Elf Ranger', 'Humanoid', 'elf,ranger'],
+  ['Halfling Rogue', 'Humanoid', 'halfling,rogue'],
+  ['Gnome Tinkerer', 'Humanoid', 'gnome,artificer'],
+  ['Tiefling Warlock', 'Humanoid', 'tiefling,warlock'],
+  ['Goblin', 'Monster', 'goblin'],
+  ['Goblin Boss', 'Monster', 'goblin,boss'],
+  ['Orc Warrior', 'Monster', 'orc,warrior'],
+  ['Skeleton', 'Undead', 'skeleton,undead'],
+  ['Wolf', 'Beast', 'wolf,beast'],
+  ['Cyber Mercenary', 'Sci-Fi Characters', 'human,mercenary,cyberpunk'],
+  ['Android', 'Sci-Fi Characters', 'robot,android'],
+];
+
 export function demoCatalog() {
   const assets = [];
+  for (const [name, group, tags] of MINIS) assets.push(makeAsset({ id: fakeGuid(`mini ${name}`), name, kind: 'creature', group, tags: tags.split(','), pack: 'synthetic' }));
   for (const [name, group, tags, sx, sy, sz] of TILES) {
     assets.push(makeAsset({ id: fakeGuid(name), name, kind: 'tile', group, tags: tags.split(','), size: { x: sx, y: sy, z: sz }, pack: 'synthetic' }));
   }

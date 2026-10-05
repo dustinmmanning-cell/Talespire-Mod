@@ -4,7 +4,7 @@
   "summary": "AI board builder: describe a place or show it a map, and get it built from your own tiles and props, ready to place.",
   "descriptionFilePath": "/README.md",
   "entryPoint": "/index.html",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "about": {
     "website": "https://github.com/dustinmmanning-cell/Talespire-Mod",
@@ -19,6 +19,9 @@
       },
       "contentPacks": {
         "onContentPackChange": "handleContentPackChange"
+      },
+      "creatures": {
+        "onCreatureStateChange": "handleCreatureStateChange"
       }
     }
   },

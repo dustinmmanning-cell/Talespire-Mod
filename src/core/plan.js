@@ -234,6 +234,33 @@ export function planSchema(kits = [], prefabRefs = [], { slabsOnly = false } = {
   return schema;
 }
 
+// NPCs written for a build (npcs.js): who stands where, for the GM notes and
+// the minis TaleForge hands the GM to place. floor 1 is the ground floor.
+export const MAX_NPCS = 40;
+export function cleanNpcs(list, W, H) {
+  return arr(list)
+    .slice(0, MAX_NPCS)
+    .map((n) => (n && typeof n === 'object'
+      ? {
+          name: text(n.name).trim().slice(0, 80) || 'Unnamed',
+          race: text(n.race).trim().slice(0, 40),
+          role: text(n.role).trim().slice(0, 60),
+          where: text(n.where).trim().slice(0, 160),
+          about: text(n.about).trim().slice(0, 600),
+          x: clampInt(n.x, 0, W - 1, 0),
+          y: clampInt(n.y, 0, H - 1, 0),
+          floor: clampInt(n.floor, 1, MAX_STOREYS, 1),
+          hp: clampInt(n.hp, 0, 9999, 0),
+          hostile: n.hostile === true,
+          mini: text(n.mini).trim().slice(0, 120),
+          miniId: typeof n.miniId === 'string' ? n.miniId.slice(0, 64) : '',
+          miniName: text(n.miniName).slice(0, 120),
+          scale: clampNum(n.scale, 0.05, 20, 1),
+        }
+      : null))
+    .filter(Boolean);
+}
+
 function cleanRooms(list, W, H) {
   return arr(list)
     .map((r) => {
@@ -300,6 +327,8 @@ export function normalizePlan(input, { maxTiles = MAX_MAP_TILES } = {}) {
     scatter: [],
     prefabs: [],
     notes: text(input.notes),
+    npcs: cleanNpcs(input.npcs, W, H),
+    npcNotes: text(input.npcNotes),
   };
 
   for (const a of arr(input.areas)) {

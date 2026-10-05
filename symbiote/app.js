@@ -25,13 +25,14 @@ const DEFAULT_SETTINGS = {
   slabsOnly: true,
   creatorMode: 'one',
   creatorName: '',
+  addNpcs: true,
 };
 
 // Settings saved by older versions had one Anthropic key/model/base URL.
 function migrateSettings(saved) {
   const out = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   if (!saved) return out;
-  for (const k of ['provider', 'effort', 'facing', 'overrides', 'usageStats', 'modioKey', 'modioBase', 'useCommunity', 'slabsOnly', 'creatorMode', 'creatorName']) if (saved[k] !== undefined) out[k] = saved[k];
+  for (const k of ['provider', 'effort', 'facing', 'overrides', 'usageStats', 'modioKey', 'modioBase', 'useCommunity', 'slabsOnly', 'creatorMode', 'creatorName', 'addNpcs']) if (saved[k] !== undefined) out[k] = saved[k];
   for (const k of ['keys', 'models', 'customModels', 'baseUrls']) if (saved[k]) out[k] = { ...out[k], ...saved[k] };
   if (saved.apiKey && !out.keys.anthropic) out.keys.anthropic = saved.apiKey;
   if (saved.model && /^claude-/.test(saved.model) && !(saved.models && saved.models.anthropic)) out.models.anthropic = saved.model;
@@ -86,6 +87,8 @@ const state = {
   traceLabels: null,
   traceExtras: null,
   history: [],
+  statNames: null, // the campaign's eight creature stat names
+  npcQueue: null, // { index } while "Place all" walks through the NPCs
 };
 
 const $ = (id) => document.getElementById(id);
@@ -105,6 +108,8 @@ const CAUSES = {
   dataOversized: 'This part is larger than TaleSpire allows for one slab.',
   spawnFailed: 'TaleSpire could not put the slab in your hand.',
   rateLimited: 'TaleSpire is rate limiting this Symbiote; wait a moment.',
+  urlInvalid: 'TaleSpire did not accept the mini (invalid blueprint).',
+  urlRejected: 'TaleSpire refused the mini. Open a board in GM mode first.',
 };
 
 // TS calls report failure either by rejecting or by resolving to { cause }.
@@ -152,6 +157,7 @@ function handleContentPackChange() {
 }
 window.handleStateChange = handleStateChange;
 window.handleContentPackChange = handleContentPackChange;
+window.handleCreatureStateChange = handleCreatureStateChange;
 
 // ---------------------------------------------------------------------------
 // storage
@@ -208,7 +214,7 @@ async function boot(inTS) {
   state.booted = true;
   wireUi();
   state.inTS = inTS && !!ts();
-  $('version').textContent = '0.3.0';
+  $('version').textContent = '0.4.0';
   const stored = await loadBlob('global');
   state.settings = migrateSettings(stored && stored.settings);
   await loadPrefabLib();
@@ -216,6 +222,7 @@ async function boot(inTS) {
   state.history = (camp && camp.history) || [];
   renderSettings();
   renderCommunityToggle();
+  $('add-npcs').checked = state.settings.addNpcs !== false;
   renderHistory();
   if (!state.inTS) {
     banner('demo', 'Running outside TaleSpire: using a synthetic demo catalog. Builds preview fine, but slabs only work inside the game.');
@@ -377,6 +384,7 @@ function progressReporter(boxId, textId) {
       else if (ev.phase === 'searching') el.dataset.phase = `Searching mod.io for "${ev.query}"…`;
       else if (ev.phase === 'downloading') el.dataset.phase = `Reading community slabs (${ev.done}/${ev.total})…`;
       else if (ev.phase === 'composing') el.dataset.phase = `${who} is arranging ${ev.count} community slab(s)…`;
+      else if (ev.phase === 'npcs') el.dataset.phase = `${who} is writing the NPCs…`;
     },
     done() {
       clearInterval(timer);
@@ -416,6 +424,15 @@ function recordUsage(res) {
   }
 }
 
+// Two calls (a plan and its NPCs) shown and counted as one build.
+function sumCalls(a, b) {
+  if (!b) return a;
+  const usage = {};
+  for (const k of new Set([...Object.keys(a.usage || {}), ...Object.keys(b.usage || {})])) usage[k] = ((a.usage || {})[k] || 0) + ((b.usage || {})[k] || 0);
+  const cost = a.cost === null || a.cost === undefined || b.cost === null || b.cost === undefined ? null : a.cost + b.cost;
+  return { ...a, usage, cost };
+}
+
 function aiInfo(res, what) {
   const tokens = res.usage.inputTokens + res.usage.cachedInputTokens + res.usage.outputTokens;
   return { what, model: res.model, provider: res.provider, tokens, cost: res.cost };
@@ -433,7 +450,7 @@ function renderModelLine() {
 }
 
 function busy(on) {
-  for (const id of ['generate', 'refine', 'trace-run', 'reseed', 'plan-rebuild', 'trace-apply']) $(id).disabled = on;
+  for (const id of ['generate', 'refine', 'trace-run', 'reseed', 'plan-rebuild', 'trace-apply', 'npc-generate']) $(id).disabled = on;
   show('cancel', on && !!state.abort);
 }
 
@@ -685,8 +702,21 @@ async function onGenerate() {
     }
     state.seed = 1;
     debug(`plan from ${res.model}: ${res.usage.outputTokens} output tokens, ${TF.formatCost(res.cost)}${res.schemaMode ? `, schema ${res.schemaMode}` : ''}`);
-    recordUsage(res);
-    await buildAndShow(res.plan, { warnings: res.warnings, ai: aiInfo(res, 'Generated') });
+    const warnings = [...(res.warnings || [])];
+    let npcCall = null;
+    if ($('add-npcs').checked) {
+      try {
+        p.update({ phase: 'npcs' });
+        npcCall = await writeNpcs(res.plan, { ...opts, prompt: args.prompt, signal: state.abort.signal, onProgress: p.update });
+      } catch (e) {
+        if (state.abort && state.abort.signal.aborted) throw e;
+        warnings.push(`The NPCs could not be written (${e.message}). Try "Add NPCs" under GM notes.`);
+      }
+    }
+    const all = sumCalls(res, npcCall);
+    recordUsage(all);
+    state.npcQueue = null;
+    await buildAndShow(res.plan, { warnings, ai: aiInfo(all, npcCall && npcCall.npcs.length ? 'Generated with NPCs' : 'Generated') });
   } catch (e) {
     setError('create-error', e);
     if (community && state.community) show('create-modio-report');
@@ -729,6 +759,180 @@ async function onRefine() {
     state.abort = null;
     busy(false);
   }
+}
+
+// ---- NPCs ----
+
+// Write NPCs for `plan` (sets plan.npcs and plan.npcNotes). -> the AI call result
+// Medium effort at most: a cast list doesn't need deep planning.
+async function writeNpcs(plan, opts) {
+  const report = opts.onProgress;
+  const n = await TF.generateNpcs({
+    ...opts,
+    effort: opts.effort === 'low' ? 'low' : 'medium',
+    plan,
+    prefabs: await prefabsFor(plan),
+    minis: state.catalog ? state.catalog.minis : [],
+    onProgress: report && ((ev) => report(ev.phase === 'writing' || ev.phase === 'thinking' ? { phase: 'npcs' } : ev)),
+  });
+  plan.npcs = n.npcs;
+  plan.npcNotes = n.notes;
+  return n;
+}
+
+async function onAddNpcs() {
+  setError('npc-error', null);
+  if (!state.plan) return;
+  let opts;
+  try {
+    opts = apiOpts();
+  } catch (e) {
+    setError('npc-error', e);
+    return;
+  }
+  state.abort = new AbortController();
+  busy(true);
+  const p = progressReporter('npc-progress', 'npc-progress-text');
+  p.update({ phase: 'npcs' });
+  try {
+    const plan = JSON.parse(JSON.stringify(state.plan));
+    const res = await writeNpcs(plan, { ...opts, prompt: plan.summary || plan.title, guidance: $('npc-guidance').value.trim(), signal: state.abort.signal, onProgress: p.update });
+    recordUsage(res);
+    state.npcQueue = null;
+    await buildAndShow(plan, { ai: aiInfo(res, 'NPCs written') });
+    $('r-notes-box').open = true;
+  } catch (e) {
+    setError('npc-error', e);
+  } finally {
+    p.done();
+    state.abort = null;
+    busy(false);
+  }
+}
+
+function renderNpcs(plan) {
+  const npcs = plan.npcs || [];
+  const list = $('npc-list');
+  list.replaceChildren();
+  npcs.forEach((n, i) => {
+    const li = document.createElement('li');
+    if (n.hostile) li.classList.add('hostile');
+    const head = document.createElement('div');
+    head.className = 'npc-head';
+    const name = document.createElement('b');
+    name.textContent = n.name;
+    const who = document.createElement('span');
+    who.className = 'muted';
+    who.textContent = [[n.race, n.role].filter(Boolean).join(' '), n.where, n.floor > 1 ? `floor ${n.floor}` : ''].filter(Boolean).join(' · ');
+    const place = document.createElement('button');
+    place.textContent = 'Place';
+    place.disabled = !n.miniId;
+    place.title = n.miniId ? `Put ${n.miniName} in your hand, named ${n.name}` : 'No mini in your library matches';
+    place.addEventListener('click', () => placeNpc(i));
+    head.append(name, who, place);
+    const about = document.createElement('p');
+    about.textContent = n.about;
+    const meta = document.createElement('small');
+    meta.textContent = [n.miniName ? `Mini: ${n.miniName}` : 'No matching mini', n.hp ? `HP ${n.hp}` : '', n.hostile ? 'hostile' : ''].filter(Boolean).join(' · ');
+    li.append(head, about, meta);
+    list.appendChild(li);
+  });
+  $('npc-summary').textContent = plan.npcNotes || '';
+  show('r-npcs', npcs.length > 0);
+  $('npc-generate').textContent = npcs.length ? 'Write new NPCs' : 'Add NPCs';
+  $('r-notes-title').textContent = npcs.length ? `GM notes · ${npcs.length} NPC${npcs.length === 1 ? '' : 's'}` : 'GM notes';
+  if (npcs.length) $('r-notes-box').open = true;
+  renderNpcQueue();
+}
+
+function npcStatus(text) {
+  $('npc-status').textContent = text || '';
+  show('npc-status', !!text);
+}
+
+function renderNpcQueue() {
+  show('npc-queue', !!state.npcQueue);
+  $('npc-place-all').disabled = !!state.npcQueue;
+}
+
+// Put NPC i in the GM's hand as a named mini.
+async function placeNpc(i) {
+  const n = state.plan && state.plan.npcs && state.plan.npcs[i];
+  if (!n) return;
+  try {
+    if (!state.inTS) throw new Error('Minis can only be placed inside TaleSpire.');
+    if (!n.miniId) throw new Error(`No mini in your library matches ${n.name}.`);
+    if (!state.statNames) {
+      try {
+        const names = await tsCall(() => TS.creatures.getCreatureStatNamesForThisCampaign());
+        state.statNames = Array.isArray(names) ? names : [];
+      } catch {
+        state.statNames = [];
+      }
+    }
+    const info = TF.npcCreatureInfo(n, state.statNames, { hidden: $('npc-hidden').checked });
+    const url = await tsCall(() => TS.creatures.createBlueprint(info));
+    if (typeof url !== 'string' || !url) throw new Error('TaleSpire did not make a mini for this NPC.');
+    await tsCall(() => TS.urls.submit(url));
+    const li = $('npc-list').children[i];
+    if (li) li.classList.add('done');
+    const more = state.npcQueue ? ` The next NPC comes when you place this one (${i + 1} of ${state.plan.npcs.length}).` : '';
+    npcStatus(`${i + 1}. ${n.name} is in your hand: click marker ${i + 1}'s spot on the board.${more}`);
+  } catch (e) {
+    npcStatus(e.message);
+    if (state.npcQueue) {
+      state.npcQueue = null;
+      renderNpcQueue();
+    }
+  }
+}
+
+async function placeAllNpcs() {
+  if (!state.plan || !(state.plan.npcs || []).length) return;
+  const first = state.plan.npcs.findIndex((n) => n.miniId);
+  if (first < 0) return npcStatus('No mini in your library matches these NPCs.');
+  state.npcQueue = { index: first };
+  renderNpcQueue();
+  await placeNpc(first);
+}
+
+async function nextNpc() {
+  const q = state.npcQueue;
+  if (!q) return;
+  const npcs = state.plan.npcs;
+  let i = q.index + 1;
+  while (i < npcs.length && !npcs[i].miniId) i++;
+  if (i >= npcs.length) {
+    state.npcQueue = null;
+    renderNpcQueue();
+    npcStatus(`All ${npcs.length} NPCs handed out.`);
+    return;
+  }
+  q.index = i;
+  await placeNpc(i);
+}
+
+function stopNpcs() {
+  state.npcQueue = null;
+  renderNpcQueue();
+  npcStatus('');
+}
+
+// TaleSpire tells us when a mini lands on the board: during "Place all", the
+// next NPC follows once the one in hand is placed.
+async function handleCreatureStateChange(ev) {
+  const kind = ev && (ev.kind || (ev.payload && ev.payload.kind));
+  const q = state.npcQueue;
+  if (kind !== 'creatureAdded' || !q || !state.plan) return;
+  const want = state.plan.npcs[q.index];
+  const frag = ev.payload && (ev.payload.creature || ev.payload);
+  try {
+    const [info] = (await tsCall(() => TS.creatures.getMoreInfo([frag]))) || [];
+    if (info && info.name && want && info.name !== want.name) return; // someone else's mini
+  } catch {
+    // can't check the name: assume it was ours
+  }
+  if (state.npcQueue === q) setTimeout(nextNpc, 250);
 }
 
 async function onReseed() {
@@ -941,7 +1145,8 @@ function renderResult() {
   });
   show('r-multislab', !!b.multiSlab);
   $('r-notes').textContent = b.plan.notes || '';
-  show('r-notes-box', !!b.plan.notes);
+  show('r-notes', !!b.plan.notes);
+  renderNpcs(b.plan);
   const warn = $('r-warnings');
   warn.replaceChildren();
   for (const w of b.warnings) {
@@ -1278,6 +1483,14 @@ function wireUi() {
     if (state.plan) await buildAndShow(state.plan, { remember: false });
     else renderKit();
   });
+  $('add-npcs').addEventListener('change', () => {
+    state.settings.addNpcs = $('add-npcs').checked;
+    saveSettings();
+  });
+  $('npc-generate').addEventListener('click', onAddNpcs);
+  $('npc-place-all').addEventListener('click', placeAllNpcs);
+  $('npc-next').addEventListener('click', nextNpc);
+  $('npc-stop').addEventListener('click', stopNpcs);
   $('use-community').addEventListener('change', () => {
     state.settings.useCommunity = $('use-community').checked;
     show('community-opts', $('use-community').checked);

@@ -36,8 +36,15 @@ export function renderPreviewSvg(result, { scale = 14, chunks = null, title = tr
   }];
   for (const f of result.floors || []) {
     const box = cellsBox(f.grid);
-    if (box) panels.push({ g: f.grid, ...box, chunks: null, labels: false, head: 22, title: `${esc(f.label)}  <tspan fill="#9a948a" font-size="11">floor ${f.level}</tspan>` });
+    if (box) panels.push({ g: f.grid, ...box, level: f.level, chunks: null, labels: false, head: 22, title: `${esc(f.label)}  <tspan fill="#9a948a" font-size="11">floor ${f.level}</tspan>` });
   }
+  // NPC markers: on the floor panel that shows their tile, else the main map
+  const npcs = (result.plan && result.plan.npcs) || [];
+  npcs.forEach((n, i) => {
+    const pi = panels.findIndex((pn, k) => k > 0 && pn.level === n.floor && n.x >= pn.x0 && n.x < pn.x0 + pn.w && n.y >= pn.y0 && n.y < pn.y0 + pn.h);
+    const pn = panels[pi > 0 ? pi : 0];
+    (pn.npcs = pn.npcs || []).push({ n, i });
+  });
   const out = [];
   let y = 0;
   let width = 0;
@@ -49,6 +56,7 @@ export function renderPreviewSvg(result, { scale = 14, chunks = null, title = tr
     out.push(`<clipPath id="${id}"><rect x="${pn.x0 * S}" y="${pn.y0 * S}" width="${pn.w * S}" height="${pn.h * S}"/></clipPath>`);
     out.push(`<g transform="translate(${-pn.x0 * S} ${y - pn.y0 * S})"><g clip-path="url(#${id})">`);
     out.push(...drawGrid(pn.g, S, pn));
+    for (const { n, i: k } of pn.npcs || []) out.push(npcMarker(n, k, S));
     out.push('</g></g>');
     y += pn.h * S;
     width = Math.max(width, pn.w * S);
@@ -59,6 +67,17 @@ export function renderPreviewSvg(result, { scale = 14, chunks = null, title = tr
     ...out,
     '</svg>',
   ].join('\n');
+}
+
+// A numbered disc where an NPC stands; red for hostile ones.
+function npcMarker(n, i, S) {
+  const cx = ((n.x + 0.5) * S).toFixed(1);
+  const cy = ((n.y + 0.5) * S).toFixed(1);
+  const r = Math.max(6, S * 0.48);
+  const fs = Math.max(8, Math.min(12, S * 0.62));
+  const who = [n.race, n.role].filter(Boolean).join(' ');
+  return `<g><title>${esc(`${i + 1}. ${n.name}${who ? ` (${who})` : ''}`)}</title><circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="${n.hostile ? '#c0392b' : '#b5479a'}" stroke="#fff" stroke-width="1.5"/>` +
+    `<text x="${cx}" y="${(Number(cy) + fs * 0.36).toFixed(1)}" text-anchor="middle" font-size="${fs.toFixed(1)}" font-weight="bold" font-family="Arial, sans-serif" fill="#fff">${i + 1}</text></g>`;
 }
 
 // Bounding box of a floor's structure cells, one tile of margin.

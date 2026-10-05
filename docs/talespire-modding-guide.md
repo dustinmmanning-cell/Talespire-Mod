@@ -137,6 +137,8 @@ Subscriptions (event sources):
 
 **What Symbiotes can't do (yet):** the FAQ says the API deliberately excludes anything that changes saved board state. The one building-related exception is **putting a slab in the GM's hand**, which the GM then places. TaleForge is built around exactly that.
 
+**Minis:** a Symbiote can't spawn creatures directly either, but `creatures.createBlueprint(creatureInfo)` builds a `talespire://creature-blueprint/…` URL from a creature info object. That object can be made from scratch: the docs say its `id` is ignored. It holds the name, `morphs: [{ boardAssetId, scale }]`, `hp` and `stats` (`{ name, value, max }`), hidden, flying and torch flags, and more. `urls.submit(url)` hands the URL straight to TaleSpire, which treats it like a pasted creature. `creatures.onCreatureStateChange` reports `creatureAdded` with the new creature's fragment. TaleForge's NPCs use this (see [npcs.md](npcs.md)). **[documented, untested in-game]** Pack details list minis under `creatures` as `{ id, name, groupTag, tags, miniAsset, baseAsset, defaultScale, icon }`, with no collider bounds.
+
 ### The content-pack catalog
 
 `contentPacks.getMoreInfo` returns every tile, prop and creature the client has loaded. Each placeable element is `{ id, name, isDeprecated, groupTag, tags[], assets[], isInteractable, colliderBoundsBound: { center, width, height, depth }, icon }`. That's enough to build an asset catalog at runtime, with no hardcoded GUIDs, and it includes any modded content packs. `findBoardObjectInPacks(id, packs)` combined with `createThumbnailElementForBoardObject(obj, size)` gives you the library thumbnail as a DOM element.

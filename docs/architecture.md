@@ -201,7 +201,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 ## Testing
 
-- `npm test`: 100 unit tests, covering:
+- `npm test`: 107 unit tests, covering:
   - the codec built by hand from the spec, and real game slabs byte-exact (opt-in fixtures)
   - geometry ground truth
   - reading asset packs through the Symbiote API: skipping packs TaleSpire cannot describe, and accepting pack contents in shapes other than the documented arrays
@@ -211,6 +211,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
   - both AI clients against recorded SSE streams: request shape, fallbacks, effort step-down, schema step-down on grammar-size errors, refusals, retries, quota errors, usage and cost
   - the plan and trace schemas against OpenAI's strict-mode rules
   - community slabs: the mod.io client against a fake mod.io, reading slabs from zips (ZIP64 included) and TaleSpire's `slabBin` files, the inflate and LZ4 decoders against zlib, fair picking across searches, one-creator sets, slabs-only plans, door detection, quarter turns checked against the compiler, assembly and credits
+  - NPCs: cleaning, mini matching (exact, variants in turn, race and job), blueprints, preview markers, the report, kept across refines, minis kept apart from building pieces
   - tracing, the PNG codec, and the bundle
 - `npm run test:e2e`: the real Symbiote in Chromium (Playwright) with a fake `TS` API and fake Anthropic and OpenAI endpoints, from prompt to a decodable slab in the GM's hand, plus screenshots. It also switches provider and model in Settings and checks the cost labels, the request sent to each API, and the cost shown on the result.
 - `npm run test:live`: real API calls (a small room, a tavern, a refine, a traced map and the cheapest model), capped at $1.50 by default. Pass `--provider openai` or `--model ID` to choose.
@@ -219,6 +220,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 
 - **Not yet run inside TaleSpire.** Everything was developed against the documented API and real slab data, but outside the game. Use the probes (Settings > Probes or `taleforge probe`) on a test board first. Please report what looks off.
 - **Furniture facing** is a setting until someone confirms it in-game; see the facing probe.
+- **NPC minis are untested in-game.** They follow the documented API (`creatures.createBlueprint`, `urls.submit`, the `creatureAdded` event), but nobody has placed one with TaleForge yet. See [npcs.md](npcs.md).
 - **No terrain height** yet: builds are flat ground with buildings, walls and roofs. Hills and cliffs are future work.
 - **Floors stay on the grid:** an upper floor can be shifted, turned 90° or overhang the floor below, but not set at an odd angle. Overhangs float, with no posts underneath.
 - **Explicit props are ground-floor only:** upper floors get furniture from their room kinds, not from the plan's `props`.
@@ -254,6 +256,7 @@ In the Symbiote, set the provider's **API base URL** to the proxy and use `proxy
 | `src/core/inflate.js` | DEFLATE, gzip, zlib and LZ4 decoders that report where a stream ends, for slab data inside other files |
 | `src/core/prefab.js` | Community slabs as prefabs: analysis, quarter turns, placement |
 | `src/core/community.js` | The community flow: AI searches, gathering, composing |
+| `src/core/npcs.js` | NPCs: the AI write-up, matching minis, creature blueprints for placing them |
 | `src/core/png.js` | PNG decode/encode for the CLI |
 | `src/core/probe.js` | Calibration builds |
 | `src/core/demo-catalog.js` | Synthetic catalog for tests and previews (fake GUIDs) |

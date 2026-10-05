@@ -5,6 +5,7 @@ import { chunkPlacements, multiSlabJson, DEFAULT_CHUNK_BUDGET } from './chunk.js
 import { renderPreviewSvg } from './preview.js';
 import { describeKitReport } from './kit.js';
 import { planStats } from './plan.js';
+import { npcLine } from './npcs.js';
 
 // A plain 1x1 tile to use as a registration marker.
 export function markerTile(kit) {
@@ -60,6 +61,10 @@ export function textReport(build) {
   lines.push(`Assets: ${build.stats.total} (${build.stats.tiles} tiles, ${build.stats.props} props, ${build.stats.distinctAssets} distinct).`);
   lines.push(`Slabs: ${build.chunks.length} (${build.chunks.map((c) => `${c.compressedBytes} B`).join(', ')}).`, '');
   if (p.notes) lines.push('## GM notes', p.notes, '');
+  if (p.npcs && p.npcs.length) {
+    lines.push('## NPCs', 'Numbers match the markers on the preview. Place their minis from the TaleForge Symbiote (Result > GM notes > Place).', '', ...p.npcs.map(npcLine), '');
+    if (p.npcNotes) lines.push(p.npcNotes, '');
+  }
   lines.push('## How to paste', ...(build.chunks.length > 1 ? PASTE_HELP.multi : PASTE_HELP.single).map((l, i) => `${i + 1}. ${l}`), '');
   if (build.credits && build.credits.length) {
     lines.push('## Community slabs', 'From mod.io. They belong to their creators: fine for your games, but don\'t republish them as your own.');

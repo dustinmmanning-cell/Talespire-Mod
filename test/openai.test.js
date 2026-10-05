@@ -1,4 +1,6 @@
 import { test } from 'node:test';
+import { SEARCH_SCHEMA } from '../src/core/community.js';
+import { NPC_SCHEMA } from '../src/core/npcs.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { callOpenAI, toResponsesInput } from '../src/core/openai.js';
@@ -171,7 +173,10 @@ const OPENAI_UNSUPPORTED = ['$anchor', '$dynamicAnchor', '$dynamicRef', '$recurs
   'maxContains', 'maxProperties', 'minContains', 'minProperties', 'not', 'oneOf', 'patternProperties', 'prefixItems',
   'propertyNames', 'then', 'unevaluatedItems', 'unevaluatedProperties', 'uniqueItems'];
 
-for (const [name, schema] of [['plan', PLAN_SCHEMA], ['plan with library kits', planSchema(demoCatalog().buildingKits())], ['trace', traceSchema()]]) {
+for (const [name, schema] of [
+  ['plan', PLAN_SCHEMA], ['plan with library kits', planSchema(demoCatalog().buildingKits())], ['trace', traceSchema()],
+  ['slabs-only plan', planSchema([], ['modio:1'], { slabsOnly: true })], ['slab searches', SEARCH_SCHEMA], ['NPCs', NPC_SCHEMA],
+]) {
   test(`${name} schema is valid for OpenAI strict structured outputs`, () => {
     let enumValues = 0;
     let properties = 0;

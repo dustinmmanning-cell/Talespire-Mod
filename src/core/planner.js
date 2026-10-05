@@ -2,7 +2,7 @@
 
 import { callModel } from './ai.js';
 import { parseJsonText } from './http.js';
-import { PLAN_SCHEMA, normalizePlan, planSchema, MAX_MAP_TILES } from './plan.js';
+import { PLAN_SCHEMA, normalizePlan, planSchema, MAX_MAP_TILES, cleanNpcs } from './plan.js';
 import { STYLES, SURFACES, WALL_MATERIALS, STYLE_PRESETS } from './kit.js';
 import { TRACE_MEANINGS } from './trace.js';
 import { describePrefab } from './prefab.js';
@@ -161,6 +161,9 @@ function stripForPrompt(plan) {
   const rest = { ...plan };
   delete rest.version;
   delete rest.raster;
+  // NPCs are written separately (npcs.js) and carried over below
+  delete rest.npcs;
+  delete rest.npcNotes;
   return rest;
 }
 
@@ -189,6 +192,12 @@ export async function generatePlan(opts) {
   });
   const raw = parseJsonText(out.text);
   const { plan, warnings } = normalizePlan(raw);
+  // the plan schema has no NPCs: a refine keeps the ones the plan had
+  const prev = opts.previousPlan;
+  if (prev && Array.isArray(prev.npcs) && prev.npcs.length && !plan.npcs.length) {
+    plan.npcs = cleanNpcs(prev.npcs, plan.width, plan.height);
+    plan.npcNotes = typeof prev.npcNotes === 'string' ? prev.npcNotes : '';
+  }
   if (opts.slabsOnly && opts.prefabs && opts.prefabs.length && plan.structures.length) {
     warnings.push(`Left out ${plan.structures.length} building(s) the AI drew: this build uses community slabs only.`);
     plan.structures = [];

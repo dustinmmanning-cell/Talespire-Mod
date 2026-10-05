@@ -11,7 +11,7 @@ import {
   traceToPlan, autoGridSize, resizeRgba, decodePng, encodePng, sniffImageType, decodeSlab, encodeSlab, demoCatalog,
   normalizePlan, probePlan, facingProbe, SIZE_PRESETS, describeKitReport, bytesToBase64, ApiError,
   PROVIDERS, PROVIDER_IDS, PRICES_AS_OF, TYPICAL_BUILD, providerOf, estimateBuildCost, formatCost,
-  ModioClient, MODIO_BASE, generateCommunityPlan, prefabFromSlab, describePrefab,
+  ModioClient, MODIO_BASE, generateCommunityPlan, prefabFromSlab, describePrefab, generateNpcs,
 } from '../core/index.js';
 
 const HELP = `TaleForge -- AI board builder for TaleSpire
@@ -21,6 +21,7 @@ Usage:
   taleforge community "<description>" [options]    build with community slabs from mod.io
   taleforge modio search <words>                   list TaleSpire slabs on mod.io
   taleforge refine <plan.json> "<change>" [options] edit an existing plan with AI
+  taleforge npcs <plan.json> ["<ideas>"]           write NPCs for a plan (names, races, notes)
   taleforge build <plan.json> [options]            build slabs from a plan (no AI)
   taleforge trace <map.png> [options]              turn a top-down map image into slabs
   taleforge catalog [--talespire DIR] [--out f]    export your asset catalog as JSON
@@ -46,6 +47,12 @@ Generation:
   --effort E          low | medium | high (default) | xhigh | max
   --api-key KEY       or set ANTHROPIC_API_KEY / OPENAI_API_KEY
   --base-url URL      API base URL, e.g. a proxy (or TALEFORGE_ANTHROPIC_BASE / TALEFORGE_OPENAI_BASE)
+
+NPCs:
+  --npcs              also write NPCs (generate, community): who is where, with
+                      names, races, a short write-up and the closest mini in
+                      your library. They go in the report and on the preview;
+                      place their minis from the Symbiote (Result > GM notes).
 
 Community slabs (mod.io):
   --modio-key KEY     your read-only mod.io API key (or set MODIO_API_KEY)
@@ -77,7 +84,7 @@ Output:
 
 function parseArgs(argv) {
   const out = { _: [], flags: {} };
-  const bool = new Set(['demo', 'ai', 'plan-only', 'help', 'no-multislab', 'json', 'mixed']);
+  const bool = new Set(['demo', 'ai', 'plan-only', 'help', 'no-multislab', 'json', 'mixed', 'npcs']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
@@ -296,7 +303,27 @@ async function cmdGenerate(args) {
     imageMode: flags['image-mode'] === 'layout' ? 'layout' : 'reference', catalog, onProgress: progress(),
   }));
   log(`plan "${res.plan.title}" from ${usageLine(res)}`);
+  if (flags.npcs) await addNpcs(res.plan, catalog, flags, { prompt });
   await writeBuild(res.plan, catalog, flags, res.warnings);
+}
+
+// Write NPCs into `plan` (plan.npcs, plan.npcNotes).
+async function addNpcs(plan, catalog, flags, { prompt, guidance, prefabs } = {}) {
+  const n = await withAi(() => generateNpcs({ ...apiOptions(flags), effort: flags.effort || 'medium', plan, prefabs, minis: catalog.minis, prompt, guidance, onProgress: progress() }));
+  plan.npcs = n.npcs;
+  plan.npcNotes = n.notes;
+  log(`${n.npcs.length} NPC(s) from ${usageLine(n)}${catalog.minis.length ? '' : ' (no minis in this catalog: none matched)'}`);
+}
+
+async function cmdNpcs(args) {
+  const { flags } = args;
+  const [, planFile, guidance] = args._;
+  if (!planFile) fail('usage: taleforge npcs <plan.json> ["ideas for the NPCs"]');
+  const catalog = loadCatalog(flags);
+  const plan = JSON.parse(readFileSync(planFile, 'utf8'));
+  const prefabs = await loadCommunity(planFile, catalog, flags);
+  await addNpcs(plan, catalog, flags, { prompt: plan.summary || plan.title, guidance, prefabs });
+  await writeBuild(plan, catalog, flags, [], { prefabs, candidates: prefabs.size ? [...prefabs.values()] : null });
 }
 
 function modioFrom(flags) {
@@ -339,6 +366,7 @@ async function cmdCommunity(args) {
   if (res.creator) log(`  all slabs by ${res.creator.name}${res.creator.missing && res.creator.missing.length ? ` (nothing of theirs for ${res.creator.missing.join(', ')})` : ''}`);
   for (const r of res.rejected) log(`  - not usable: ${r.name} by ${r.creator || '?'} (${r.reason})`);
   log(`plan "${res.plan.title}" from ${usageLine(res)}`);
+  if (flags.npcs) await addNpcs(res.plan, catalog, flags, { prompt, prefabs: res.prefabs });
   await writeBuild(res.plan, catalog, flags, res.warnings, { prefabs: res.prefabs, candidates: res.candidates });
 }
 
@@ -584,7 +612,7 @@ async function main() {
     process.stdout.write(HELP);
     return;
   }
-  const commands = { community: cmdCommunity, modio: cmdModio, generate: cmdGenerate, refine: cmdRefine, build: cmdBuild, trace: cmdTrace, catalog: cmdCatalog, kit: cmdKit, decode: cmdDecode, probe: cmdProbe, models: cmdModels, proxy: cmdProxy };
+  const commands = { community: cmdCommunity, npcs: cmdNpcs, modio: cmdModio, generate: cmdGenerate, refine: cmdRefine, build: cmdBuild, trace: cmdTrace, catalog: cmdCatalog, kit: cmdKit, decode: cmdDecode, probe: cmdProbe, models: cmdModels, proxy: cmdProxy };
   const fn = commands[cmd];
   if (!fn) fail(`unknown command "${cmd}". Run taleforge --help.`);
   await fn(args);

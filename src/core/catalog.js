@@ -44,6 +44,7 @@ export function makeAsset(fields) {
     center: { x: r3(center.x), y: r3(center.y), z: r3(center.z) },
     pack: fields.pack || '',
     deprecated: !!fields.deprecated,
+    ...(fields.kind === 'creature' ? { scale: Number(fields.scale) > 0 ? Number(fields.scale) : 1 } : {}),
   };
 }
 
@@ -65,6 +66,7 @@ export function assetsFromIndexJson(index, packName) {
         size,
         center: { x: ctr.x ?? size.x / 2, y: ctr.y ?? size.y / 2, z: ctr.z ?? size.z / 2 },
         deprecated: e.IsDeprecated,
+        scale: e.DefaultScale,
       }));
     }
   }
@@ -112,6 +114,11 @@ export function assetsFromContentPacks(packInfos, names = []) {
           deprecated: e.isDeprecated,
         }));
       }
+    }
+    // minis (contentPackCreatureElement: no collider bounds, a default scale)
+    for (const e of listOf(pack.creatures)) {
+      if (!e || typeof e !== 'object' || !e.id || typeof e.id !== 'string') continue;
+      out.push(makeAsset({ id: e.id, name: e.name, kind: 'creature', group: e.groupTag, tags: e.tags, pack: packName, scale: e.defaultScale, deprecated: e.isDeprecated }));
     }
   }
   return { assets: out, boundsScale: scale };
@@ -220,7 +227,7 @@ function fragName(f) {
 
 function packInfoList(v) {
   if (Array.isArray(v)) return v.filter((p) => p && typeof p === 'object');
-  if (v && typeof v === 'object' && (v.tiles || v.props)) return [v];
+  if (v && typeof v === 'object' && (v.tiles || v.props || v.creatures)) return [v];
   if (v && typeof v === 'object' && Array.isArray(v.$values)) return packInfoList(v.$values);
   throw new Error(`TaleSpire sent unexpected pack details (${describeValue(v)})`);
 }
@@ -286,13 +293,17 @@ export function tileClass(a) {
 // ---- the catalog -----------------------------------------------------------
 
 export class Catalog {
+  // Minis (kind 'creature') are kept apart in `minis`: they are never
+  // building pieces, and `size` counts tiles and props only.
   constructor(assets = [], meta = {}) {
     this.meta = { source: 'unknown', ...meta };
     this.assets = [];
+    this.minis = [];
     this.byIdMap = new Map();
     this.byNameMap = new Map();
     for (const a of assets) this.add(a);
     assignGenres(this.assets);
+    assignGenres(this.minis);
   }
 
   // Library groups that can build a whole structure: wall pieces, and usually
@@ -328,6 +339,14 @@ export class Catalog {
 
   add(asset) {
     const a = asset.size && asset.center ? asset : makeAsset(asset);
+    if (a.kind === 'creature') {
+      this._miniIds = this._miniIds || new Set();
+      if (this._miniIds.has(a.id)) return;
+      this._miniIds.add(a.id);
+      a._tokens = new Set([...tokenize(a.name), ...a.tags.flatMap(tokenize), ...tokenize(a.group)]);
+      this.minis.push(a);
+      return;
+    }
     if (this.byIdMap.has(a.id)) return;
     this.assets.push(a);
     this.byIdMap.set(a.id, a);
@@ -401,10 +420,10 @@ export class Catalog {
       format: CATALOG_FORMAT,
       version: CATALOG_VERSION,
       meta: this.meta,
-      fields: ['id', 'name', 'kind', 'group', 'tags', 'sx', 'sy', 'sz', 'cx', 'cy', 'cz', 'pack', 'deprecated'],
-      assets: this.assets.map((a) => [
+      fields: ['id', 'name', 'kind', 'group', 'tags', 'sx', 'sy', 'sz', 'cx', 'cy', 'cz', 'pack', 'deprecated', 'scale'],
+      assets: [...this.assets, ...this.minis].map((a) => [
         a.id, a.name, a.kind, a.group, a.tags.join('|'),
-        a.size.x, a.size.y, a.size.z, a.center.x, a.center.y, a.center.z, a.pack, a.deprecated ? 1 : 0,
+        a.size.x, a.size.y, a.size.z, a.center.x, a.center.y, a.center.z, a.pack, a.deprecated ? 1 : 0, ...(a.kind === 'creature' ? [a.scale] : []),
       ]),
     };
   }
@@ -414,7 +433,7 @@ export class Catalog {
     if (data.version !== CATALOG_VERSION) throw new Error(`catalog version ${data.version} is not supported`);
     const assets = data.assets.map((r) => makeAsset({
       id: r[0], name: r[1], kind: r[2], group: r[3], tags: r[4] ? r[4].split('|') : [],
-      size: { x: r[5], y: r[6], z: r[7] }, center: { x: r[8], y: r[9], z: r[10] }, pack: r[11], deprecated: !!r[12],
+      size: { x: r[5], y: r[6], z: r[7] }, center: { x: r[8], y: r[9], z: r[10] }, pack: r[11], deprecated: !!r[12], scale: r[13],
     }));
     return new Catalog(assets, data.meta || {});
   }

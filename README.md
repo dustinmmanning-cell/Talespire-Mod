@@ -34,6 +34,7 @@ An AI model designs the layout: Claude (Anthropic) or GPT (OpenAI), whichever yo
 - **Refine:** "add a stable east of the inn", "make the river wider". Or edit the plan JSON by hand and rebuild instantly.
 - **Use your own assets:** no hardcoded GUIDs. It reads your loaded content packs and lets you override the asset used for any role.
 - **Build with community slabs:** search TaleSpire's official slab repository on mod.io and assemble a scene from other players' finished builds. TaleForge checks each slab against your library, turns and places it, draws the roads and terrain around it, and credits the creators. By default every building is a slab, and all slabs come from one creator for a consistent look; you can also name the creator. See [community-slabs.md](docs/community-slabs.md).
+- **NPCs:** a second AI call writes who lives and works there (the smith at the forge, the barkeep behind the bar, a goblin sentry in the cave), each with a name, race, role, two lines of notes for the GM and the closest mini in your library. They're listed under GM notes with numbered markers on the preview. **Place** puts each one in your hand as a named mini with its HP; **Place all** goes through them in order. See [npcs.md](docs/npcs.md).
 - **Fantasy and sci-fi:** the fantasy styles build from TaleSpire's fantasy library, and the `modern`, `cyberpunk` and `scifi` styles from its Cyberpunk and Sci-Fi library. Any group in your library with its own walls (Hull, Concrete Building, Tavern…) can be a building's material.
 - **Paste correctly:**
   - Builds over TaleSpire's 30 KB slab limit are split into parts that line up when placed on the same spot.
@@ -77,6 +78,10 @@ node src/cli/taleforge.js community "a harbour village with a tavern and a light
 node src/cli/taleforge.js community "a market town" --creator LemurianSettler
 node src/cli/taleforge.js modio search tavern
 
+# Add NPCs, or write them for an existing plan
+node src/cli/taleforge.js generate "a fishing village" --npcs
+node src/cli/taleforge.js npcs out/the-prancing-gryphon.plan.json "the cook is hiding something"
+
 # Use a specific provider or model
 node src/cli/taleforge.js generate "a lighthouse on a rocky islet" --provider openai --model gpt-6.1-sol
 
@@ -106,6 +111,7 @@ The CLI uses whichever API key is set (Anthropic if both are), unless you pass `
 
 ## Learn more
 
+- [NPCs](docs/npcs.md): how they're written, matched to minis and placed
 - [Building with community slabs](docs/community-slabs.md): mod.io search, reading slabs, turning and placing them, credits and rules
 - [How TaleForge works](docs/architecture.md): the plan format, compiler guarantees, trace mode, chunking, and how the Anthropic and OpenAI APIs are used
 - [The TaleSpire modding guide](docs/talespire-modding-guide.md): Symbiotes, BepInEx and LordAshes' plugins, asset data, the URL scheme, community tools and gotchas
@@ -114,7 +120,7 @@ The CLI uses whichever API key is set (Anthropic if both are), unless you pass `
 ## Develop
 
 ```bash
-npm test             # 100 unit tests, no dependencies
+npm test             # 107 unit tests, no dependencies
 npm run test:e2e     # the Symbiote in Chromium with fake TaleSpire, Anthropic and OpenAI APIs (needs Playwright)
 npm run test:live    # real API calls: needs ANTHROPIC_API_KEY or OPENAI_API_KEY, spends real money (capped, default $1.50)
 npm run test:live -- --provider openai --model gpt-6.1-sol   # pick the provider and model

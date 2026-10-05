@@ -117,6 +117,18 @@ summary:hover { color: var(--fg); }
 .part-list button { font-size: 12px; padding: 4px 10px; }
 
 .notes, .warnings { font-size: 13px; white-space: pre-wrap; }
+.npcs h4 { margin: 10px 0 4px; font-size: 14px; }
+.npc-list { padding-left: 22px; margin: 6px 0; }
+.npc-list li { margin: 6px 0; font-size: 13px; }
+.npc-list li::marker { color: #d97ac4; font-weight: bold; }
+.npc-list li.hostile::marker { color: #e0604f; }
+.npc-list .npc-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.npc-list .npc-head b { color: var(--fg); }
+.npc-list .npc-head .muted { flex: 1; }
+.npc-list .npc-head button { padding: 2px 10px; font-size: 12px; }
+.npc-list p { margin: 2px 0; color: var(--fg); }
+.npc-list small { color: var(--fg2); }
+.npc-list li.done { opacity: 0.6; }
 .warnings { padding-left: 18px; color: var(--fg2); }
 #plan-json { font: 12px/1.4 ui-monospace, Consolas, monospace; }
 

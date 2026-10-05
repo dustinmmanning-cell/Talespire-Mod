@@ -33,3 +33,4 @@ export { ModioClient, MODIO_BASE, summarizeMod, slabFromBytes, slabFromText, sla
 export { inflateRaw, gunzipAt, zlibAt, lz4BlockAt, lz4FrameAt } from './inflate.js';
 export { analyzePrefab, prefabFromSlab, transformPrefab, rotatedSize, rotatedEntrances, rotatedGround, describePrefab } from './prefab.js';
 export { planSearches, gatherSlabs, generateCommunityPlan, SEARCH_SCHEMA } from './community.js';
+export { generateNpcs, layoutSummary, miniSection, resolveMini, assignMinis, npcCreatureInfo, npcLine, npcNotesText, NPC_SCHEMA } from './npcs.js';

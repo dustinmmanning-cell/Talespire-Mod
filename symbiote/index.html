@@ -72,6 +72,7 @@
       </div>
     </div>
 
+    <label class="check"><input type="checkbox" id="add-npcs"> Add NPCs: names, races and notes, with minis to place</label>
     <label class="check" id="community-box"><input type="checkbox" id="use-community"> Build with community slabs from mod.io</label>
     <p class="hint hidden" id="community-hint">Add a mod.io API key in Settings to use community slabs.</p>
     <div class="community-opts hidden" id="community-opts">
@@ -171,7 +172,29 @@
         <div id="refine-error" class="error hidden" role="alert"></div>
       </div>
 
-      <details id="r-notes-box"><summary>GM notes</summary><p id="r-notes" class="notes"></p></details>
+      <details id="r-notes-box"><summary id="r-notes-title">GM notes</summary>
+        <p id="r-notes" class="notes"></p>
+        <div id="r-npcs" class="npcs hidden">
+          <h4>NPCs <span class="muted small">numbers match the markers on the map</span></h4>
+          <div class="actions">
+            <button class="primary" id="npc-place-all">Place all</button>
+            <label class="check"><input type="checkbox" id="npc-hidden"> Place hidden from players</label>
+          </div>
+          <p id="npc-status" class="hint hidden" aria-live="polite"></p>
+          <div class="actions hidden" id="npc-queue">
+            <button id="npc-next">Next NPC</button>
+            <button id="npc-stop">Stop</button>
+          </div>
+          <ol id="npc-list" class="npc-list"></ol>
+          <p id="npc-summary" class="notes"></p>
+        </div>
+        <label class="field"><span>Ideas for the NPCs (optional)</span>
+          <input id="npc-guidance" type="text" placeholder="e.g. the innkeeper is secretly a cultist">
+        </label>
+        <div class="actions"><button id="npc-generate">Add NPCs</button></div>
+        <div id="npc-progress" class="progress hidden"><span class="spinner"></span><span id="npc-progress-text"></span></div>
+        <div id="npc-error" class="error hidden" role="alert"></div>
+      </details>
       <details id="r-warn-box"><summary id="r-warn-title">Warnings</summary><ul id="r-warnings" class="warnings"></ul></details>
       <details>
         <summary>Plan JSON</summary>
