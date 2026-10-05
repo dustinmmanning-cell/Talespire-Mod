@@ -199,9 +199,16 @@ const kitName = (v) => `${KIT_PREFIX}${v.slice(KIT_PREFIX.length).trim().slice(0
 // The plan schema with this library's building kits added to the wall and
 // floor choices ("kit:Concrete Building"). kits: Catalog.buildingKits().
 // prefabRefs: community slabs the model may place (adds a required "prefabs").
-export function planSchema(kits = [], prefabRefs = []) {
+// slabsOnly: every building comes from those slabs, so there is no
+// "structures" for the model to fill.
+export function planSchema(kits = [], prefabRefs = [], { slabsOnly = false } = {}) {
   if (!kits.length && !prefabRefs.length) return PLAN_SCHEMA;
   const schema = JSON.parse(JSON.stringify(PLAN_SCHEMA));
+  if (slabsOnly && prefabRefs.length) {
+    delete schema.properties.structures;
+    schema.required = schema.required.filter((k) => k !== 'structures');
+    kits = [];
+  }
   if (prefabRefs.length) {
     schema.properties.prefabs = {
       type: 'array',

@@ -1,6 +1,6 @@
 {
   "name": "taleforge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI board builder for TaleSpire: turn a prompt or reference image into pasteable slabs, as a Symbiote and a CLI.",
   "type": "module",
   "license": "MIT",

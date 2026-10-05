@@ -33,7 +33,7 @@ An AI model designs the layout: Claude (Anthropic) or GPT (OpenAI), whichever yo
 - **Trace a battle map:** convert a top-down map image into floors, walls, water and trees, tile by tile. The AI labels what each colour means and counts the battle grid.
 - **Refine:** "add a stable east of the inn", "make the river wider". Or edit the plan JSON by hand and rebuild instantly.
 - **Use your own assets:** no hardcoded GUIDs. It reads your loaded content packs and lets you override the asset used for any role.
-- **Build with community slabs:** search TaleSpire's official slab repository on mod.io and assemble a scene from other players' finished builds. TaleForge checks each slab against your library, turns and places it, draws the roads and terrain around it, and credits the creators. See [community-slabs.md](docs/community-slabs.md).
+- **Build with community slabs:** search TaleSpire's official slab repository on mod.io and assemble a scene from other players' finished builds. TaleForge checks each slab against your library, turns and places it, draws the roads and terrain around it, and credits the creators. By default every building is a slab, and all slabs come from one creator for a consistent look; you can also name the creator. See [community-slabs.md](docs/community-slabs.md).
 - **Fantasy and sci-fi:** the fantasy styles build from TaleSpire's fantasy library, and the `modern`, `cyberpunk` and `scifi` styles from its Cyberpunk and Sci-Fi library. Any group in your library with its own walls (Hull, Concrete Building, Tavern…) can be a building's material.
 - **Paste correctly:**
   - Builds over TaleSpire's 30 KB slab limit are split into parts that line up when placed on the same spot.
@@ -74,6 +74,7 @@ node src/cli/taleforge.js generate "the manor from this plan" --image manor.png 
 
 # Assemble a scene from community slabs on mod.io (needs MODIO_API_KEY)
 node src/cli/taleforge.js community "a harbour village with a tavern and a lighthouse"
+node src/cli/taleforge.js community "a market town" --creator LemurianSettler
 node src/cli/taleforge.js modio search tavern
 
 # Use a specific provider or model
@@ -113,7 +114,7 @@ The CLI uses whichever API key is set (Anthropic if both are), unless you pass `
 ## Develop
 
 ```bash
-npm test             # 96 unit tests, no dependencies
+npm test             # 100 unit tests, no dependencies
 npm run test:e2e     # the Symbiote in Chromium with fake TaleSpire, Anthropic and OpenAI APIs (needs Playwright)
 npm run test:live    # real API calls: needs ANTHROPIC_API_KEY or OPENAI_API_KEY, spends real money (capped, default $1.50)
 npm run test:live -- --provider openai --model gpt-6.1-sol   # pick the provider and model

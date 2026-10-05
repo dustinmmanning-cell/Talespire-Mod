@@ -93,7 +93,7 @@ export function imageGuidance(imageMode) {
 }
 
 // image: { mediaType: 'image/png'|'image/jpeg'|'image/webp'|'image/gif', data: base64 }
-export function buildUserContent({ prompt, size, style, image, imageMode, previousPlan, prefabs }) {
+export function buildUserContent({ prompt, size, style, image, imageMode, previousPlan, prefabs, slabsOnly }) {
   const content = [];
   if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } });
   const lines = [];
@@ -109,26 +109,51 @@ export function buildUserContent({ prompt, size, style, image, imageMode, previo
     lines.push(style && STYLES.includes(style) ? `Style: ${style}.` : 'Style: choose the best fit.');
     if (image) lines.push(imageGuidance(imageMode));
   }
-  if (prefabs && prefabs.length) lines.push('', prefabSection(prefabs));
+  if (prefabs && prefabs.length) lines.push('', prefabSection(prefabs, { slabsOnly }));
   content.push({ type: 'text', text: lines.join('\n') });
   return content;
 }
 
-// Community slabs the model may place whole (see community.js).
-export function prefabSection(prefabs) {
-  const lines = prefabs.map((pf) => {
-    const bits = [`${pf.ref}: "${pf.name}"${pf.creator ? ` by ${pf.creator}` : ''}`, describePrefab(pf)];
-    if (pf.tags && pf.tags.length) bits.push(`tags: ${pf.tags.slice(0, 6).join(', ')}`);
-    if (pf.summary) bits.push(`"${pf.summary.replace(/\s+/g, ' ').slice(0, 140)}"`);
-    return `- ${bits.join(' | ')}`;
-  });
+// Community slabs the model may place whole (see community.js), grouped by
+// creator so the model can keep to one builder's style.
+export function prefabSection(prefabs, { slabsOnly = false } = {}) {
+  const byCreator = new Map();
+  for (const pf of prefabs) {
+    const k = pf.creator || 'unknown creator';
+    if (!byCreator.has(k)) byCreator.set(k, []);
+    byCreator.get(k).push(pf);
+  }
+  const groups = [...byCreator].sort((a, b) => b[1].length - a[1].length);
+  const lines = [];
+  for (const [creator, list] of groups) {
+    if (groups.length > 1 || list.length > 1) lines.push(`## by ${creator} (${list.length})`);
+    for (const pf of list) {
+      const bits = [`${pf.ref}: "${pf.name}"${pf.creator ? ` by ${pf.creator}` : ''}`, describePrefab(pf)];
+      if (pf.search) bits.push(`found for: ${pf.search}`);
+      if (pf.tags && pf.tags.length) bits.push(`tags: ${pf.tags.slice(0, 6).join(', ')}`);
+      if (pf.summary) bits.push(`"${pf.summary.replace(/\s+/g, ' ').slice(0, 140)}"`);
+      lines.push(`- ${bits.join(' | ')}`);
+    }
+  }
+  const rules = [
+    '- rotation is 0, 90, 180 or 270 degrees clockwise. A WxD slab turned 90 or 270 covers D x W tiles. x, y is the top-left tile of the footprint after turning.',
+    '- Door sides are for rotation 0; each 90 degrees moves them one side clockwise (n -> e -> s -> w). Turn slabs so their doors face the street or square, and run paths to them.',
+    '- Keep at least one tile between slabs, and never overlap a slab with another slab or with a structure.',
+    '- Keep the scene in one style: prefer slabs by the same creator, or from one series (names sharing a prefix, like "LemurianTown..."). Mixing builders looks patchy, so use a slab by another creator only when nothing from the main one fits.',
+    '- A slab may be placed more than once: repeat and turn the same house for a row of homes rather than mixing styles.',
+  ];
+  if (slabsOnly) {
+    rules.push(
+      '- Every building in this scene must be one of these slabs. This build has no structures: you cannot draw buildings, so cover every building the request needs with a slab. Where nothing fits exactly, use the closest slab (a shop slab as a home, a house slab repeated and turned).',
+      '- Draw only what joins the slabs: ground, roads and paths to their doors, plazas, terrain areas, fences or walls, trees and scatter, and outdoor props.',
+    );
+  } else {
+    rules.push('- Use slabs instead of drawing your own building wherever one fits; draw only what is missing (roads, terrain, walls, small buildings).');
+  }
+  rules.push('- Size the map so the slabs fit with room for streets.');
   return `# Community slabs you can place
-Finished builds by other TaleSpire players, from mod.io. Place the ones that suit the request whole, with prefabs: [{ref, x, y, rotation}]:
-- rotation is 0, 90, 180 or 270 degrees clockwise. A WxD slab turned 90 or 270 covers D x W tiles. x, y is the top-left tile of the footprint after turning.
-- Door sides are for rotation 0; each 90 degrees moves them one side clockwise (n -> e -> s -> w). Turn slabs so their doors face the street or square, and run paths to them.
-- Keep at least one tile between slabs, and never overlap a slab with another slab or with a structure.
-- Use them instead of drawing your own building wherever one fits; draw only what is missing (roads, terrain, walls, small buildings). A slab may be placed more than once (a row of houses).
-- Size the map so the slabs fit with room for streets.
+Finished builds by other TaleSpire players, from mod.io. Place them whole, with prefabs: [{ref, x, y, rotation}]:
+${rules.join('\n')}
 ${lines.join('\n')}`;
 }
 
@@ -164,13 +189,17 @@ export async function generatePlan(opts) {
   });
   const raw = parseJsonText(out.text);
   const { plan, warnings } = normalizePlan(raw);
+  if (opts.slabsOnly && opts.prefabs && opts.prefabs.length && plan.structures.length) {
+    warnings.push(`Left out ${plan.structures.length} building(s) the AI drew: this build uses community slabs only.`);
+    plan.structures = [];
+  }
   return { plan, warnings, provider: out.provider, model: out.model, usage: out.usage, cost: out.cost, schemaMode: out.schemaMode, raw };
 }
 
 function planSchemaFor(opts) {
   const kits = opts.catalog && opts.catalog.buildingKits && !(opts.catalog.meta && opts.catalog.meta.synthetic) ? opts.catalog.buildingKits() : [];
   const refs = (opts.prefabs || []).map((p) => p.ref);
-  return kits.length || refs.length ? planSchema(kits, refs) : PLAN_SCHEMA;
+  return kits.length || refs.length ? planSchema(kits, refs, { slabsOnly: !!opts.slabsOnly }) : PLAN_SCHEMA;
 }
 
 // ---- trace mode: label colour clusters of a traced map image ----------------

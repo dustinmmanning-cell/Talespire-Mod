@@ -86,15 +86,27 @@ export class ModioClient {
     return all.find((t) => /^slabs?$/i.test(t.tag)) || all.find((t) => /slab/i.test(t.tag)) || null;
   }
 
-  // -> { total, items: [summary] }
-  async searchSlabs(query, { limit = 8, offset = 0, sort = '-popular', signal } = {}) {
+  // -> { total, items: [summary] }. submittedBy: a creator's user id.
+  async searchSlabs(query, { limit = 8, offset = 0, sort = '-popular', submittedBy, signal } = {}) {
     const g = await this.game({ signal });
     const tag = await this.slabTag({ signal });
     const params = { _limit: String(limit), _offset: String(offset), _sort: sort };
     if (query) params._q = query;
     if (tag) params.tags = tag.tag;
+    if (submittedBy) params.submitted_by = String(submittedBy);
     const res = await this.request(`/games/${g.id}/mods`, params, { signal });
     return { total: res.result_total ?? (res.data || []).length, items: (res.data || []).map(summarizeMod), tag: tag ? tag.tag : null };
+  }
+
+  // A creator's slabs, most popular first (mod.io pages hold at most 100).
+  async slabsBy(creatorId, { limit = 200, signal } = {}) {
+    const items = [];
+    for (let offset = 0; offset < limit; offset += 100) {
+      const res = await this.searchSlabs('', { limit: Math.min(100, limit - offset), offset, submittedBy: creatorId, signal });
+      items.push(...res.items);
+      if (res.items.length < 100 || items.length >= res.total) break;
+    }
+    return items;
   }
 
   async getMod(id, opts) {
@@ -161,6 +173,7 @@ export function summarizeMod(m) {
     summary: unescapeHtml(m.summary),
     url: m.profile_url || '',
     creator: unescapeHtml(m.submitted_by && m.submitted_by.username),
+    creatorId: (m.submitted_by && m.submitted_by.id) || null,
     creatorUrl: (m.submitted_by && m.submitted_by.profile_url) || '',
     thumb: (m.logo && (m.logo.thumb_320x180 || m.logo.original)) || '',
     tags: (m.tags || []).map((t) => unescapeHtml(t.name)).filter(Boolean),
@@ -266,17 +279,19 @@ function score(name) {
 // ---- slab data inside a larger binary ---------------------------------------
 //
 // The slab browser uploads each slab as a zip holding README.md and "slabBin".
-// slabBin is TaleSpire's own, undocumented container:
+// slabBin is TaleSpire's own, undocumented container. What real files show:
 //
 //   u32  magic    0x51ABFACE  (bytes ce fa ab 51)
 //   u16  version  1
-//   u32? length   of the slab data that follows (the file is almost always
-//                 this + 210 bytes)
+//   u32  length   of the zlib stream that follows
+//   zlib          a v2 slab (the same binary as clipboard slabs)
+//   200 bytes     usually; one file showed a second zlib v2 slab in them
+//                 (empty), and a few files are longer there
 //
-// Rather than trust a guess at the rest, this decodes the ranges the header
-// points at with every likely codec, then scans the file for gzip, zlib, LZ4
-// and raw slab signatures, and keeps whatever decodes to a valid v2 slab.
-// Several slab parts in one file are merged.
+// Rather than rely on that, this decodes the ranges the header points at with
+// every likely codec, then scans the file for gzip, zlib, LZ4 and raw slab
+// signatures, and keeps whatever decodes to a valid v2 slab. Several slab
+// parts in one file are merged.
 
 export const SLAB_FILE_MAGIC = 0x51abface;
 const SLAB_PREFIX = new Uint8Array(SLAB_MAGIC_LE);
@@ -334,7 +349,7 @@ function candidates(bytes) {
     if (isGzipAt(bytes, i)) add('gzip', i);
     else if (isLz4FrameAt(bytes, i)) add('lz4frame', i);
     else if (bytes[i] === 0xce && startsWith(bytes.subarray(i), SLAB_MAGIC_LE)) add('raw', i);
-    else if (i < 512 && isZlibAt(bytes, i)) add('zlib', i);
+    else if (isZlibAt(bytes, i)) add('zlib', i);
   }
   for (let i = 0; i <= Math.min(64, bytes.length - 1); i++) add('deflate', i, 0, true);
   return list;
@@ -390,7 +405,7 @@ export async function slabFromBinary(bytes, depth = 0) {
   const { text } = await encodeSlab(placements, { maxBytes: 0 });
   const h = slabFileHeader(bytes);
   const what = h ? `TaleSpire slab file v${h.version}` : 'binary';
-  const where = parts.map((p) => `${p.kind} at bytes ${p.start}-${p.end}`).join(', ');
+  const where = parts.map((p) => `${p.kind} at bytes ${p.start}-${p.end}${parts.length > 1 ? ` (${p.placements.length} assets)` : ''}`).join(', ');
   const after = bytes.length - parts[parts.length - 1].end;
   const merged = parts.length > 1 ? `; ${parts.length} parts merged` : '';
   return { slab: { text, how: `${what}: ${where} of ${bytes.length}${after ? `, ${after} bytes after` : ''}${merged}` }, attempts };
@@ -410,7 +425,7 @@ async function probeBinary(bytes) {
     if (isGzipAt(bytes, i)) sigs.push(`gzip@${i}`);
     else if (isLz4FrameAt(bytes, i)) sigs.push(`lz4@${i}`);
     else if (startsWith(bytes.subarray(i), SLAB_MAGIC_LE)) sigs.push(`slab@${i}`);
-    else if (i < 512 && isZlibAt(bytes, i)) sigs.push(`zlib?@${i}`);
+    else if (isZlibAt(bytes, i)) sigs.push(`zlib?@${i}`);
   }
   out.signatures = sigs;
   out.attempts = (await extractSlabs(bytes, 1)).attempts.slice(0, 10);

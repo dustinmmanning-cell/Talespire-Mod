@@ -22,13 +22,16 @@ const DEFAULT_SETTINGS = {
   modioKey: '',
   modioBase: '',
   useCommunity: false,
+  slabsOnly: true,
+  creatorMode: 'one',
+  creatorName: '',
 };
 
 // Settings saved by older versions had one Anthropic key/model/base URL.
 function migrateSettings(saved) {
   const out = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   if (!saved) return out;
-  for (const k of ['provider', 'effort', 'facing', 'overrides', 'usageStats', 'modioKey', 'modioBase', 'useCommunity']) if (saved[k] !== undefined) out[k] = saved[k];
+  for (const k of ['provider', 'effort', 'facing', 'overrides', 'usageStats', 'modioKey', 'modioBase', 'useCommunity', 'slabsOnly', 'creatorMode', 'creatorName']) if (saved[k] !== undefined) out[k] = saved[k];
   for (const k of ['keys', 'models', 'customModels', 'baseUrls']) if (saved[k]) out[k] = { ...out[k], ...saved[k] };
   if (saved.apiKey && !out.keys.anthropic) out.keys.anthropic = saved.apiKey;
   if (saved.model && /^claude-/.test(saved.model) && !(saved.models && saved.models.anthropic)) out.models.anthropic = saved.model;
@@ -205,7 +208,7 @@ async function boot(inTS) {
   state.booted = true;
   wireUi();
   state.inTS = inTS && !!ts();
-  $('version').textContent = '0.2.0';
+  $('version').textContent = '0.3.0';
   const stored = await loadBlob('global');
   state.settings = migrateSettings(stored && stored.settings);
   await loadPrefabLib();
@@ -593,10 +596,25 @@ function modioClient() {
 }
 
 function renderCommunityToggle() {
-  const has = !!state.settings.modioKey;
+  const s = state.settings;
+  const has = !!s.modioKey;
   $('use-community').disabled = !has;
-  $('use-community').checked = has && !!state.settings.useCommunity;
+  $('use-community').checked = has && !!s.useCommunity;
   show('community-hint', !has);
+  show('community-opts', $('use-community').checked);
+  $('slabs-only').checked = s.slabsOnly !== false;
+  $('slab-creator-mode').value = ['one', 'any', 'named'].includes(s.creatorMode) ? s.creatorMode : 'one';
+  $('slab-creator').value = s.creatorName || '';
+  show('slab-creator-field', $('slab-creator-mode').value === 'named');
+}
+
+// The creator setting for gatherSlabs: 'one', 'any' or a creator's name.
+function creatorOption() {
+  const mode = $('slab-creator-mode').value;
+  if (mode !== 'named') return mode;
+  const name = $('slab-creator').value.trim();
+  if (!name) throw new Error('Type the mod.io creator to build from, or pick another "Slab creators" setting.');
+  return name;
 }
 
 // ai: { what, model, provider, tokens, cost } for AI-made plans, null for
@@ -655,9 +673,11 @@ async function onGenerate() {
     };
     let res;
     if (community) {
-      res = await TF.generateCommunityPlan({ ...args, modio: modioClient(), cache: state.prefabLib, onGathered: (g) => (state.community = g) });
+      const slabsOnly = $('slabs-only').checked;
+      const extra = { modio: modioClient(), creator: creatorOption(), slabsOnly, cache: state.prefabLib };
+      res = await TF.generateCommunityPlan({ ...args, ...extra, onGathered: (g) => (state.community = { ...g, slabsOnly }) });
       for (const [ref, pf] of res.prefabs) state.prefabs.set(ref, pf);
-      state.community = { searches: res.searches, candidates: res.candidates, rejected: res.rejected, found: res.found };
+      state.community = { searches: res.searches, candidates: res.candidates, rejected: res.rejected, found: res.found, creator: res.creator, slabsOnly };
       await savePrefabLib(res.plan.prefabs.map((x) => x.ref));
     } else {
       res = await TF.generatePlan(args);
@@ -696,7 +716,9 @@ async function onRefine() {
     const offered = new Map();
     for (const pf of (state.community && state.community.candidates) || []) offered.set(pf.ref, pf);
     for (const [ref, pf] of await prefabsFor(state.plan)) offered.set(ref, pf);
-    const res = await TF.generatePlan({ ...opts, prompt: change, previousPlan: state.plan, catalog: state.catalog, prefabs: [...offered.values()], onProgress: p.update, signal: state.abort.signal });
+    // a slabs-only build stays slabs-only (also when reopened from Recent builds)
+    const slabsOnly = offered.size > 0 && (!!(state.community && state.community.slabsOnly) || (!state.plan.structures.length && (state.plan.prefabs || []).length > 0));
+    const res = await TF.generatePlan({ ...opts, prompt: change, previousPlan: state.plan, catalog: state.catalog, prefabs: [...offered.values()], slabsOnly, onProgress: p.update, signal: state.abort.signal });
     $('refine-prompt').value = '';
     recordUsage(res);
     await buildAndShow(res.plan, { warnings: res.warnings, ai: aiInfo(res, 'Refined') });
@@ -845,8 +867,12 @@ function renderCredits(b) {
     ul.appendChild(li);
   }
   const cm = state.community;
+  const who = cm && cm.creator;
+  const set = who
+    ? ` All slabs by ${who.name}${who.slabs ? ` (from their ${who.slabs} slab${who.slabs === 1 ? '' : 's'})` : ''}.${who.missing && who.missing.length ? ` They have nothing for ${who.missing.map((q) => `"${q}"`).join(', ')}.` : ''}`
+    : '';
   $('r-community-note').textContent = cm
-    ? `Searched mod.io for ${cm.searches.map((s) => `"${s.query}"`).join(', ')}: ${cm.found} slab(s) found, ${cm.candidates.length} usable, ${credits.length} placed.` +
+    ? `Searched mod.io for ${cm.searches.map((s) => `"${s.query}"`).join(', ')}: ${cm.found} slab(s) found, ${cm.candidates.length} usable, ${credits.length} placed.${set}` +
       (cm.rejected.length ? ` Not usable: ${cm.rejected.slice(0, 4).map((r) => `${r.name} (${r.reason})`).join('; ')}${cm.rejected.length > 4 ? '…' : ''}.` : '')
     : '';
 }
@@ -857,8 +883,10 @@ function modioReport() {
   return JSON.stringify({
     taleforge: $('version').textContent,
     searches: cm.searches,
+    creator: cm.creator || null,
+    slabsOnly: !!cm.slabsOnly,
     found: cm.found,
-    usable: cm.candidates.map((c) => ({ ref: c.ref, name: c.name, how: c.how, size: `${c.w}x${c.d}`, floors: c.floors, doors: c.entrances, assets: c.count, genre: c.genre })),
+    usable: cm.candidates.map((c) => ({ ref: c.ref, name: c.name, creator: c.creator, for: c.search || undefined, how: c.how, size: `${c.w}x${c.d}`, floors: c.floors, doors: c.entrances, assets: c.count, genre: c.genre })),
     notUsable: cm.rejected.map((r) => ({ ref: r.ref, name: r.name, reason: r.reason, file: r.details || undefined })),
     placed: (state.build && state.build.credits) || [],
   }, null, 1);
@@ -1252,6 +1280,21 @@ function wireUi() {
   });
   $('use-community').addEventListener('change', () => {
     state.settings.useCommunity = $('use-community').checked;
+    show('community-opts', $('use-community').checked);
+    saveSettings();
+  });
+  $('slabs-only').addEventListener('change', () => {
+    state.settings.slabsOnly = $('slabs-only').checked;
+    saveSettings();
+  });
+  $('slab-creator-mode').addEventListener('change', () => {
+    state.settings.creatorMode = $('slab-creator-mode').value;
+    show('slab-creator-field', state.settings.creatorMode === 'named');
+    if (state.settings.creatorMode === 'named') $('slab-creator').focus();
+    saveSettings();
+  });
+  $('slab-creator').addEventListener('change', () => {
+    state.settings.creatorName = $('slab-creator').value.trim();
     saveSettings();
   });
   $('r-modio-report').addEventListener('click', () => copyText(modioReport(), 'mod.io report copied. Paste it to the developer.'));

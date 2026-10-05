@@ -51,6 +51,12 @@ Community slabs (mod.io):
   --modio-key KEY     your read-only mod.io API key (or set MODIO_API_KEY)
   --modio-base URL    mod.io API base URL (or TALEFORGE_MODIO_BASE; default ${MODIO_BASE})
   --search WORDS      comma-separated searches instead of letting the AI choose
+  --creator C         one (default): all slabs from the one creator whose slabs
+                      fit the request best, for a consistent look; any: the
+                      best match for each building from anyone; or a mod.io
+                      creator's name, e.g. --creator LemurianSettler
+  --mixed             let the AI draw buildings no slab covers (default: every
+                      building is a slab; TaleForge draws ground, roads, trees)
   The slabs a plan uses are saved next to it as NAME.community.json, which
   build and refine read back.
 
@@ -71,7 +77,7 @@ Output:
 
 function parseArgs(argv) {
   const out = { _: [], flags: {} };
-  const bool = new Set(['demo', 'ai', 'plan-only', 'help', 'no-multislab', 'json']);
+  const bool = new Set(['demo', 'ai', 'plan-only', 'help', 'no-multislab', 'json', 'mixed']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
@@ -188,7 +194,7 @@ async function writeBuild(plan, catalog, flags, extraWarnings = [], { prefabs = 
   const stem = stemOf(plan.title, flags);
   writeFileSync(join(outDir, `${stem}.plan.json`), JSON.stringify(plan, null, 2));
   if (candidates && candidates.length) {
-    const slabs = candidates.map((c) => ({ ref: c.ref, name: c.name, creator: c.creator, url: c.url, summary: c.summary, tags: c.tags, how: c.how, size: describePrefab(c), text: c.slab }));
+    const slabs = candidates.map((c) => ({ ref: c.ref, name: c.name, creator: c.creator, creatorId: c.creatorId, url: c.url, summary: c.summary, tags: c.tags, how: c.how, size: describePrefab(c), text: c.slab }));
     writeFileSync(join(outDir, `${stem}.community.json`), JSON.stringify({ note: 'Community slabs from mod.io; they belong to their creators.', slabs }, null, 1));
   }
   if (flags['plan-only']) {
@@ -310,7 +316,7 @@ async function loadCommunity(planFile, catalog, flags) {
   const out = new Map();
   for (const e of JSON.parse(readFileSync(file, 'utf8')).slabs || []) {
     try {
-      out.set(e.ref, await prefabFromSlab(e.text, catalog, { ref: e.ref, name: e.name, creator: e.creator, url: e.url, summary: e.summary, tags: e.tags, how: e.how }));
+      out.set(e.ref, await prefabFromSlab(e.text, catalog, { ref: e.ref, name: e.name, creator: e.creator, creatorId: e.creatorId, url: e.url, summary: e.summary, tags: e.tags, how: e.how }));
     } catch (err) {
       log(`  ! ${e.ref}: ${err.message}`);
     }
@@ -324,11 +330,13 @@ async function cmdCommunity(args) {
   if (!prompt) fail('describe what to build, e.g. taleforge community "a harbour village with a tavern and a lighthouse"');
   const catalog = loadCatalog(flags);
   if (catalog.meta && catalog.meta.synthetic) fail('community slabs need your real asset catalog (--talespire DIR or --catalog FILE), to check every slab uses assets you have');
-  const searches = flags.search ? String(flags.search).split(',').map((q) => ({ query: q.trim(), purpose: '' })).filter((q) => q.query) : undefined;
+  const searches = flags.search ? String(flags.search).split(',').map((q) => ({ query: q.trim(), words: [], purpose: '' })).filter((q) => q.query) : undefined;
+  const creator = flags.creator ? String(flags.creator).trim() : 'one';
   const res = await withAi(() => generateCommunityPlan({
-    ...apiOptions(flags), prompt, size: parseSize(flags.size), style: flags.style, catalog, modio: modioFrom(flags), searches, onProgress: progress(),
+    ...apiOptions(flags), prompt, size: parseSize(flags.size), style: flags.style, catalog, modio: modioFrom(flags), searches, creator, slabsOnly: !flags.mixed, onProgress: progress(),
   }));
   log(`searched mod.io for ${res.searches.map((x) => `"${x.query}"`).join(', ')}: ${res.found} found, ${res.candidates.length} usable`);
+  if (res.creator) log(`  all slabs by ${res.creator.name}${res.creator.missing && res.creator.missing.length ? ` (nothing of theirs for ${res.creator.missing.join(', ')})` : ''}`);
   for (const r of res.rejected) log(`  - not usable: ${r.name} by ${r.creator || '?'} (${r.reason})`);
   log(`plan "${res.plan.title}" from ${usageLine(res)}`);
   await writeBuild(res.plan, catalog, flags, res.warnings, { prefabs: res.prefabs, candidates: res.candidates });
@@ -350,7 +358,9 @@ async function cmdRefine(args) {
   const catalog = loadCatalog(flags);
   const previousPlan = JSON.parse(readFileSync(planFile, 'utf8'));
   const prefabs = await loadCommunity(planFile, catalog, flags);
-  const res = await withAi(() => generatePlan({ ...apiOptions(flags), prompt: change, previousPlan, catalog, prefabs: [...prefabs.values()], onProgress: progress() }));
+  // a slabs-only plan stays slabs-only unless --mixed
+  const slabsOnly = !flags.mixed && prefabs.size > 0 && (previousPlan.prefabs || []).length > 0 && !(previousPlan.structures || []).length;
+  const res = await withAi(() => generatePlan({ ...apiOptions(flags), prompt: change, previousPlan, catalog, prefabs: [...prefabs.values()], slabsOnly, onProgress: progress() }));
   log(`plan "${res.plan.title}" from ${usageLine(res)}`);
   await writeBuild(res.plan, catalog, flags, res.warnings, { prefabs, candidates: [...prefabs.values()] });
 }

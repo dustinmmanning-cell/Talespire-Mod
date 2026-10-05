@@ -74,6 +74,23 @@
 
     <label class="check" id="community-box"><input type="checkbox" id="use-community"> Build with community slabs from mod.io</label>
     <p class="hint hidden" id="community-hint">Add a mod.io API key in Settings to use community slabs.</p>
+    <div class="community-opts hidden" id="community-opts">
+      <label class="check"><input type="checkbox" id="slabs-only"> Every building from slabs (TaleForge only draws the ground, roads and trees)</label>
+      <div class="row">
+        <label class="field grow">
+          <span>Slab creators</span>
+          <select id="slab-creator-mode">
+            <option value="one">One creator's set (most consistent)</option>
+            <option value="any">Best match from anyone</option>
+            <option value="named">A creator I name…</option>
+          </select>
+        </label>
+        <label class="field grow hidden" id="slab-creator-field">
+          <span>Creator on mod.io</span>
+          <input id="slab-creator" type="text" placeholder="e.g. LemurianSettler" spellcheck="false">
+        </label>
+      </div>
+    </div>
     <div class="actions">
       <button class="primary" id="generate">Generate</button>
       <button class="hidden" id="cancel">Cancel</button>

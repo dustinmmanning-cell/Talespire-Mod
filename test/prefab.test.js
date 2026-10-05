@@ -89,3 +89,14 @@ test('prefab: storeys, moving, and assets this library lacks', async () => {
   const fromText = await prefabFromSlab(text, catalog, { ref: 'modio:1', name: 'Cottage' });
   assert.deepEqual([fromText.ref, fromText.w, fromText.d], ['modio:1', 6, 4]);
 });
+
+test('prefab: doors of a building set back inside a walled yard are still found', () => {
+  for (const side of ['s', 'n']) {
+    const plan = {
+      ...cottage(14, 14, { x: 4, y: side === 's' ? 7 : 3, w: 6, h: 4 }, side === 's' ? { x: 6, y: 10, side: 's' } : { x: 6, y: 3, side: 'n' }),
+      barriers: [{ label: 'wall', kind: 'fortification', material: 'castle', points: [[0.5, 0.5], [13.5, 0.5], [13.5, 13.5], [0.5, 13.5]], closed: true, gates: [], towers: false }],
+    };
+    const pf = analyzePrefab(compilePlan(plan, kit()).placements, catalog);
+    assert.deepEqual(pf.entrances, [side], `door on ${side}`);
+  }
+});

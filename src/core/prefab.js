@@ -104,6 +104,24 @@ export function analyzePrefab(placements, catalog) {
     if (b[0] < core[0] + 0.75) entrances.add('w');
     if (b[2] > core[2] - 0.75) entrances.add('e');
   }
+  // No door on the building's edge (a building set back behind a yard or
+  // patio): take ground-storey doors near an edge of the slab, facing across
+  // their thin side.
+  if (!entrances.size) {
+    const floor0 = levels.length ? levels[0] : 0;
+    for (const p of norm) {
+      const a = catalog.get(p.assetId);
+      if (!a || !/door/i.test(a.name) || /trap|hatch/i.test(a.name) || p.y > floor0 + 1.5) continue;
+      const b = box(a, p);
+      const cx = (b[0] + b[2]) / 2;
+      const cz = (b[1] + b[3]) / 2;
+      const sides = [];
+      if (b[2] - b[0] >= b[3] - b[1]) sides.push(['s', cz / d], ['n', (d - cz) / d]);
+      if (b[3] - b[1] >= b[2] - b[0]) sides.push(['w', cx / w], ['e', (w - cx) / w]);
+      const [side, dist] = sides.sort((x, y) => x[1] - y[1])[0];
+      if (dist <= 0.34) entrances.add(side);
+    }
+  }
   const ground = new Set();
   let groundTop = 0;
   for (const { b, top } of base) {
